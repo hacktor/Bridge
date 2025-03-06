@@ -126,7 +126,7 @@ while (my $cgi = CGI::Fast->new) {
         }
         
         # is the message a reply?
-        $text = "(reply to: $msg->{reply_to_message}->{text}) " . $text if defined $msg->{reply_to_message} and
+        $text = "(reply to: $msg->{reply_to_message}->{text}) \n" . $text if defined $msg->{reply_to_message} and
             $msg->{reply_to_message}->{text};
 
         # is the message a forward?
