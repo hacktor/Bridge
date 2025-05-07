@@ -48,7 +48,7 @@ my $inode = (stat($sig->{infile}))[1];
 # SEEK_END
 seek($tail, 0, 2) or die @_;
 for (;;) {
-    sleep 1; # not to get too tight loop
+    sleep 10; # not to get too tight loop
 
     # check if logfiles haven't turned over below our feet
     if ($inode != (stat($sig->{infile}))[1]) {
@@ -98,7 +98,11 @@ for (;;) {
         system($sig->{cli},"-u",$sig->{phone},"--output=json","receive");
     };
     print $dbg $out, $err if defined $dbg;
-    notify($err) if $err;
+    if ($err) {
+        notify($err);
+        #rely on a restart
+        exit;
+    }
 
     my @lines = split /\n/, $out;
     for my $line (@lines) {
@@ -124,7 +128,7 @@ for (;;) {
         my $quote = "";
         if (defined $datamsg->{quote}{text}) {
             my $qtext = $datamsg->{quote}{text}; chomp $qtext;
-            $qtext = (length($qtext) > 100) ? "(reply to ". substr($qtext,0,100) ."...) " : "(reply to: $qtext) ";
+            $qtext = (length($qtext) > 100) ? "(reply to ". substr($qtext,0,100) ."...)\n" : "(reply to: $qtext)\n";
             $sav = $qtext;
             eval { $quote .= decode_utf8($qtext, Encode::FB_QUIET) while $qtext; };
             $quote = $sav if $@; # try undecoded string as last resort
@@ -179,7 +183,7 @@ for (;;) {
         next unless $text or $attach;
 
         # dry-run
-        next if defined $sig->{dryrun} and $sig->{dryrun};
+        next if $sig->{dryrun};
 
         # relay to all chats
         my $pre = "[sig] $anonsender: ";
