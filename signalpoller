@@ -128,54 +128,17 @@ for (;;) {
         my $quote = "";
         if (defined $datamsg->{quote}{text}) {
             my $qtext = $datamsg->{quote}{text}; chomp $qtext;
-            $qtext = (length($qtext) > 100) ? "(reply to ". substr($qtext,0,100) ."...)\n" : "(reply to: $qtext)\n";
+            $qtext = (length($qtext) > 100) ? "(reply to ". substr($qtext,0,100) ."...)\n\n" : "(reply to: $qtext)\n\n";
             $sav = $qtext;
             eval { $quote .= decode_utf8($qtext, Encode::FB_QUIET) while $qtext; };
             $quote = $sav if $@; # try undecoded string as last resort
         }
 
-        # anonymize sender telephone
-        my $anonsender = $sender;
         if (defined $sig->{nicks}->{$sender}) {
-
-            $anonsender = $sig->{nicks}->{$sender};
+            # old style aliases, to be removed
+            $sender = $sig->{nicks}->{$sender};
         } else {
-
-            $anonsender =~ s/.*(\d\d\d\d)$/$cfg->{common}->{anon}-$1/;
-            $sig->{nicks}->{$sender} = $anonsender;
-            nickhelp($sig,$sender,$anonsender);
-            setalias($sig,$sender,$anonsender);
-        }
-
-        # check for setnick command
-        if ($text =~ /^!setnick/) {
-            (my $nick = $text) =~ s/^!setnick.//s;
-            if ($nick) {
-                setalias($sig,$sender,$nick);
-                $sig->{nicks}->{$sender} = $nick;
-                $text = "$anonsender is now known as $nick\n";
-
-                # notify the signal group
-                open my $w, ">>", $sig->{infile} or die "Died opening file $sig->{infile}";
-                print $w "$text";
-                close $w;
-
-                $text = "[sig] $text";
-
-                # notify chats
-                Hermod::relayToFile($text, $_) for $irc->{infile};
-                Hermod::relay2mtx($text,$mat,$dbg) if defined $mat;
-                Hermod::relay2mm($text,$mm,$dbg) if defined $mm;
-                Hermod::relay2dis($text,$dis,$dbg) if defined $dis;
-                Hermod::relay2tel($tel,$text) if defined $tel;
-
-                next;
-            }
-        } elsif ($text =~ /^!users/) {
-
-            # user list asked; relay command to hermod
-            Hermod::relayToFile("CMD!SIG!users\n", $irc->{infile});
-            next;
+            $sender = (defined $sigmsg->{sourceName}) ? $sigmsg->{sourceName} : "Anonymous Pirat";
         }
 
         # only relay group messages with contents
@@ -186,7 +149,7 @@ for (;;) {
         next if $sig->{dryrun};
 
         # relay to all chats
-        my $pre = "[sig] $anonsender: ";
+        my $pre = "[sig] $sender: ";
         if ($text =~ /\S/) {
 
             Hermod::relay2tel($tel,"$pre$quote$text\n",$dbg) if defined $tel;
@@ -202,8 +165,8 @@ for (;;) {
             rename "$sig->{attachments}/$att->{id}", "$sig->{attachments}/$att->{id}.$ext";
             my $type = ($att->{contentType} =~ /image/) ? 'photo' : 'document';
 
-            my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $anonsender\n";
-            my $msg = "[sig] **$anonsender sends a $type: $sig->{url}/$att->{id}.$ext\n";
+            my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $sender\n";
+            my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}.$ext\n";
 
             # relay to telegram
             Hermod::relayFile2tel($filemsg,$tel,$type,$dbg) if defined $tel;
@@ -234,24 +197,6 @@ sub getalias {
         $alias->{$row->{phone}} = $row->{nick};
     }
     return $alias;
-}
-
-sub setalias {
-    my ($sig,$phone,$nick) = @_;
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$sig->{db}", "", "", { RaiseError => 1 }, ) or die $DBI::errstr;
-    $dbh->do("insert or replace into alias (phone,nick) values (?,?)", undef, $phone, $nick) or die $DBI::errstr;
-    $dbh->disconnect();
-}
-
-sub nickhelp {
-    my ($sig,$phone,$nick) = @_;
-    my $text = 'You do not have a nickname set. You are now known as '.$nick;
-    $text .= '. To change this, simply type !setnick yournickname on a new line in the group or in a private message to me.';
-    my ($out, $err, $ret) = tee {
-        system($sig->{cli},"-u",$sig->{phone},"send","-m","$text",$phone);
-    };
-    print $dbg $out, $err if defined $dbg;
-    notify($err) if $err;
 }
 
 sub notify {
