@@ -38,7 +38,7 @@ debug       = "/home/hermod/log/signal.debug"
 gid         = "xxxxxxxxxxxxxxxxxx+xxx=="
 infile      = "/home/hermod/log/tosignal.log"
 phone       = "+31177113"
-url         = "http://example.com/signal"
+url         = "http://mydomain.com/signal"
 
 [telegram]
 attachments = "/var/www/html/telegram"
@@ -46,17 +46,18 @@ chat_id     = "-1111111111111"
 db          = "/home/hermod/db/telegram.db"
 debug       = "/home/hermod/log/telegramhook.debug"
 token       = "999999999:XXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-url         = "http://example.com/telegram"
+url         = "http://mydomain.com/telegram"
 
 [mattermost]
 attachments     = "/var/www/html/mattermost"
 intoken         = "x1x1x1x1x1x1x1x1x1x1x1x1x1"
 bearer          = "aw3aw3aw3aw3aw3aw3aw3aw3aw"
-url             = "https://example.com/hooks/2y2y2y2y2y2y2y2y2y"
-api             = "https://example.com/api/v4"
+url             = "https://mattermost.com/hooks/2y2y2y2y2y2y2y2y2y"
+api             = "https://mattermost.com/api/v4"
 channel_id      = "9z9z9z9z9z9z9z9z9z9z9z9z9z"
 user_id         = "6c6c6c6c6c6c6c6c6c6c6c66c6"
 debug           = "/home/hermod/log/matterbot.debug"
+attachurl       = "http://mydomain.com/mattermost"
 
 [discord]
 webhook         = "https://discord.com/api/webhooks/8888xxxxyyyyzzzz9999aaaaaa"
