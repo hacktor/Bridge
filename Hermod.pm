@@ -68,6 +68,8 @@ sub relay2mm {
     $curl->setopt(WWW::Curl::Easy::CURLOPT_HTTPHEADER(), ['Content-Type: application/json; charset=UTF-8']);
     $curl->setopt(WWW::Curl::Easy::CURLOPT_POST(), 1);
     $curl->setopt(WWW::Curl::Easy::CURLOPT_POSTFIELDS, $text);
+    $curl->setopt(CURLOPT_SSL_VERIFYPEER, 0);  # don’t verify cert against CA
+    $curl->setopt(CURLOPT_SSL_VERIFYHOST, 0);  # don’t check hostname in cert
     my $retcode = $curl->perform;
     if ($retcode != 0) {
         print $dbg "An error happened: $retcode ".$curl->strerror($retcode)." ".$curl->errbuf."\n" if $dbg;
@@ -113,6 +115,8 @@ sub relayFile2mm {
             $curl->setopt(WWW::Curl::Easy::CURLOPT_HTTPHEADER(), ['Content-Type: application/json; charset=UTF-8', $bearer]);
             $curl->setopt(WWW::Curl::Easy::CURLOPT_POST(), 1);
             $curl->setopt(WWW::Curl::Easy::CURLOPT_POSTFIELDS, $jsonstr);
+            $curl->setopt(CURLOPT_SSL_VERIFYPEER, 0);  # don’t verify cert against CA
+            $curl->setopt(CURLOPT_SSL_VERIFYHOST, 0);  # don’t check hostname in cert
             my $retcode = $curl->perform;
             if ($retcode != 0) {
                 print "An error happened: $retcode ".$curl->strerror($retcode)." ".$curl->errbuf."\n";
@@ -150,22 +154,6 @@ sub relay2mtx {
     print $dbg "body: $body\n" if defined $dbg;
     my ($out, $err, $ret) = capture {
         system("curl", "-s", "-XPOST", "-d", "$body", "$posturl");
-    };
-    print $dbg $out, $err if defined $dbg;
-}
-
-sub relay2Tel {
-
-    my ($text,$tel,$dbg) = @_;
-    return unless defined $tel;
-
-    # we relay straight to telegram
-    my $telmsg;
-    $text = encode_utf8($text);
-    eval { $telmsg = uri_escape($text); };
-    $telmsg = uri_escape_utf8($text) if $@;
-    my ($out, $err, $ret) = capture {
-        system("curl", "-s", "https://api.telegram.org/bot$tel->{token}/sendMessage?chat_id=$tel->{chat_id}&parse_mode=MarkdownV2&text=$telmsg");
     };
     print $dbg $out, $err if defined $dbg;
 }
