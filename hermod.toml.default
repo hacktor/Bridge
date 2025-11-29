@@ -49,6 +49,7 @@ token       = "999999999:XXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 url         = "http://example.com/telegram"
 
 [mattermost]
+attachments     = "/var/www/html/mattermost"
 intoken         = "x1x1x1x1x1x1x1x1x1x1x1x1x1"
 bearer          = "aw3aw3aw3aw3aw3aw3aw3aw3aw"
 url             = "https://example.com/hooks/2y2y2y2y2y2y2y2y2y"
