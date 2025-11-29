@@ -181,7 +181,7 @@ for (;;) {
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
 
             # relay to irc
-            Hermod::relayToFile($msg, $_, $dbg) for $irc->{infile};
+            Hermod::relayToFile($msg, $irc->{infile}, $dbg) if defined $irc;
         }
     }
 }
