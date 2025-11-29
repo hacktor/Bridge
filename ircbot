@@ -8,7 +8,7 @@
 
 use strict;
 use POE qw(Component::IRC Component::IRC::Plugin::FollowTail Component::IRC::Plugin::Connector
-           Component::IRC::Plugin::BotAddressed Component::SSLify);
+           Component::IRC::Plugin::BotAddressed Component::SSLify Component::IRC::Plugin::NickServID);
 use URI::Escape;
 use JSON qw( decode_json );
 use TOML;
@@ -56,6 +56,9 @@ sub _start {
     my ($kernel, $heap) = @_[KERNEL ,HEAP];
     $heap->{connector} = POE::Component::IRC::Plugin::Connector->new();
     $irc->plugin_add( 'Connector' => $heap->{connector} );
+    $irc->plugin_add( 'NickServID', POE::Component::IRC::Plugin::NickServID->new(
+        Password => $cfg->{irc}->{password}
+    ));
 
     # file to be read and send to the channel
     $irc->plugin_add( FollowTail => POE::Component::IRC::Plugin::FollowTail->new(
@@ -173,11 +176,13 @@ sub irc_nick {
     my $text = '';
     $text .= decode_utf8($msg, Encode::FB_QUIET) while $msg;
 
-    Hermod::relay2tel($tel,$text,$dbg);
-    Hermod::relay2mm($text,$mm,$dbg);
-    Hermod::relay2mtx($text,$mat,$dbg);
-    Hermod::relay2dis($text,$dis,$dbg);
-    Hermod::relay2sig($text,$sig,$dbg);
+    if (defined $cfg->{irc}->{showjoin}) {
+        Hermod::relay2tel($tel,$text,$dbg);
+        Hermod::relay2mm($text,$mm,$dbg);
+        Hermod::relay2mtx($text,$mat,$dbg);
+        Hermod::relay2dis($text,$dis,$dbg);
+        Hermod::relay2sig($text,$sig,$dbg);
+    }
 }
 
 sub irc_join {
