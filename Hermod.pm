@@ -7,6 +7,7 @@ use WWW::Curl::Form;
 use URI::Escape;
 use Capture::Tiny 'capture';
 use Encode qw(encode_utf8);
+use LWP::UserAgent;
 use IO::Socket::INET;
 
 sub bridge {
@@ -42,14 +43,24 @@ sub getmmlink {
     my ($id,$mm,$dbg) = @_;
     return unless defined $mm;
     my $json = JSON->new->allow_nonref;
-    my ($out, $err, $ret) = capture {
-        system("curl", "-s", "-XGET", "-H", "Authorization: Bearer $mm->{bearer}", "$mm->{api}/files/$id/link");
-    };
-    print $dbg $out, $err if defined $dbg;
+    my $ua = LWP::UserAgent->new;
 
-    my $jsonret;
-    eval { $jsonret = $json->decode($out); };
-    return (defined $jsonret->{link}) ? $jsonret->{link} : '';
+    my $info_res = $ua->get( "$mm->{api}/files/$id/info", 'Authorization' => "Bearer $mm->{bearer}");
+    unless $info_res->is_success {
+        print $dbg "Kon file info niet ophalen: " . $info_res->status_line if defined $dbg;
+        return;
+    }
+    my $info = decode_json($info_res->decoded_content);
+    my $file_res = $ua->get( "$mm->{api}/files/$id", 'Authorization' => "Bearer $mm->{bearer}");
+    unless $file_res->is_success {
+        print $dbg "Kon file niet downloaden: " . $file_res->status_line if defined $dbg;
+        return;
+    }
+    open my $fh, ">", "$mm->{attachments}/$info->{name}" or return;
+    binmode $fh;
+    print $fh $file_res->decoded_content;
+    close $fh;
+    return "$mm->{attachurl}/$info->{name}";
 }
 
 sub relay2mm {
