@@ -46,13 +46,13 @@ sub getmmlink {
     my $ua = LWP::UserAgent->new;
 
     my $info_res = $ua->get( "$mm->{api}/files/$id/info", 'Authorization' => "Bearer $mm->{bearer}");
-    unless $info_res->is_success {
+    unless ($info_res->is_success) {
         print $dbg "Kon file info niet ophalen: " . $info_res->status_line if defined $dbg;
         return;
     }
     my $info = decode_json($info_res->decoded_content);
     my $file_res = $ua->get( "$mm->{api}/files/$id", 'Authorization' => "Bearer $mm->{bearer}");
-    unless $file_res->is_success {
+    unless ($file_res->is_success) {
         print $dbg "Kon file niet downloaden: " . $file_res->status_line if defined $dbg;
         return;
     }
