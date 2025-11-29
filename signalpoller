@@ -168,19 +168,10 @@ for (;;) {
             my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $sender\n";
             my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}.$ext\n";
 
-            # relay to telegram
             Hermod::relayFile2tel($filemsg,$tel,$type,$dbg) if defined $tel;
-
-            # relay to Mattermost
             Hermod::relayFile2mm($filemsg,$mm,$dbg) if defined $mm;
-
-            # relay to matrix
             Hermod::relay2mtx($msg,$mat,$dbg) if defined $mat;
-
-            # relay to discord
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
-
-            # relay to irc
             Hermod::relayToFile($msg, $irc->{infile}, $dbg) if defined $irc;
         }
     }
