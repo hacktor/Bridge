@@ -90,7 +90,7 @@ sub handle {
             $text =~ s/\[/\\[/g;
             $text =~ s/\]/\\]/g;
             $text = '`['.$msg->{prefix}.'] '.$msg->{user}.':` '.$text."\n";
-            Hermod::relay2Tel($text, $cfg->{telegram});
+            Hermod::relay2tel($tel,$text,$dbg);
         }
         Hermod::relay2irc($msg->{text}, $cfg->{irc}, "[$msg->{prefix}] $msg->{user}: ") unless $msg->{chat} eq "irc";
         $text = "[$msg->{prefix}] $msg->{user}: $msg->{text}\n";
