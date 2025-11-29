@@ -58,7 +58,7 @@ while (my $cgi = CGI::Fast->new) {
             my $filemsg;
             for my $id (split /,/,$dj->{file_ids}) {
 
-                if (my $link = Hermod::getmmlink($id,$mm)) {
+                if (my $link = Hermod::getmmlink($id,$mm,$dbg)) {
 
                     $pre = "[mm] **$dj->{user_name} sends a file: ";
 
