@@ -9,6 +9,7 @@ use Capture::Tiny 'capture';
 use Encode qw(encode_utf8);
 use LWP::UserAgent;
 use IO::Socket::INET;
+use File::Basename;
 
 sub bridge {
 
@@ -84,6 +85,82 @@ sub relay2mm {
     my $retcode = $curl->perform;
     if ($retcode != 0) {
         print $dbg "An error happened: $retcode ".$curl->strerror($retcode)." ".$curl->errbuf."\n" if $dbg;
+    }
+}
+
+sub relay2mmapi {
+
+    # Arguments the sub expects:
+    # $hr = {
+    #   sender => "visible username in message",
+    #   quote  => "markdown text to be quoted",
+    #   text   => "normal text",
+    #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
+    #   file   => "/path/to/file"   # optional
+    # }
+    # $mm  : hashref mattermost config from hermod.tom
+    # $dbg : filehandle to debug log (optional)
+
+    my ($hr, $mm, $dbg) = @_;
+    return unless $mm->{api} && $mm->{channel_id} && $mm->{bearer};
+    my $ua = LWP::UserAgent->new;
+    my @file_ids;
+
+    if ($hr->{files} && @{$hr->{files}}) {
+        foreach my $file (@{$hr->{files}}) {
+            next unless -e $file;
+
+            my $filename = basename($file);
+
+            my $res = $ua->post(
+                "$mm->{api}/files",
+                'Authorization' => "Bearer $mm->{bearer}",
+                Content_Type    => 'form-data',
+                Content         => [
+                    files      => [$file, $filename],
+                    channel_id => $mm->{channel_id},
+                ],
+            );
+
+            unless ($res->is_success) {
+                print $dbg "File upload failed ($file): " . $res->status_line . "\n" if $dbg;
+                next;
+            }
+
+            my $data = decode_json($res->decoded_content);
+
+            if ($data->{file_infos}) {
+                push @file_ids, map { $_->{id} } @{$data->{file_infos}};
+            }
+        }
+    }
+
+    # ---------- MESSAGE BODY ----------
+    my $message = "";
+
+    $message .= "**$hr->{sender}:**\n\n" if $hr->{sender};
+    $message .= "> $hr->{quote}\n\n"     if $hr->{quote};
+    $message .= $hr->{text}              if $hr->{text};
+
+    # ---------- POST MESSAGE ----------
+    my $post_url = "$mm->{api}/posts";
+
+    my $payload = {
+        channel_id => $mm->{channel_id},
+        message    => $message,
+    };
+
+    $payload->{file_ids} = \@file_ids if @file_ids;
+
+    my $res = $ua->post(
+        $post_url,
+        'Authorization' => "Bearer $mm->{bearer}",
+        'Content-Type'  => 'application/json',
+        Content         => encode_json($payload),
+    );
+
+    unless ($res->is_success) {
+        print $dbg "Message post failed: " . $res->status_line . "\n" if $dbg
     }
 }
 
