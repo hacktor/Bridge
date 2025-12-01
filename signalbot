@@ -11,7 +11,7 @@ use strict;
 use threads;
 use JSON;
 use TOML;
-use URI::Escape;
+use Any::URI::Escape;
 use DBI;
 use Capture::Tiny 'tee';
 use Hermod;
@@ -31,7 +31,6 @@ unless (defined $cfg->{signal}->{phone} and defined $cfg->{signal}->{cli} and
 }
 
 my $sig = $cfg->{signal};
-$sig->{nicks} = getalias($sig);
 $ENV{JAVA_HOME} = $sig->{JAVA_HOME} if defined $sig->{JAVA_HOME};
 open my $dbg, ">>", $sig->{debug} if defined $sig->{debug};
 my $tel = $cfg->{telegram} if defined $cfg->{telegram};
@@ -41,15 +40,21 @@ my $mm = $cfg->{mattermost} if defined $cfg->{mattermost};
 my $dis = $cfg->{discord} if defined $cfg->{discord};
 
 # start a thread to keep a tail on the signal->infile
-my $thr = threads->create(\&signalinfilereader,$sig,$dbg);
+my $thr = threads->create(\&signalinfilereader,$sig,$dbg)
+	unless defined $sig->{transport} or $sig->{transport} =~ /file/i;
+
+# tailing signal dbus
+#open(my $dbus, "-|", "$sig->{cli}", "-u", "$sig->{phone}", "--output=json", "daemon", "--dbus");
 
 for (;;) {
 
-    # tailing signal dbus
-    open(my $dbus, "-|", "$sig->{cli}", "-u", "$sig->{phone}", "--output=json", "daemon");
-
+    my ($dbus, $dbuserr, $ret) =  tee {
+        system("$sig->{cli}", "-u", "$sig->{phone}", "--output=json", "daemon", "--dbus");
+    };
     # now poll the signal group for new messages
     my $json = JSON->new->allow_nonref;
+    my $err = <$dbuserr>;
+    print "STDERR: $err\n";
     while (my $line = <$dbus>) {
 
         print $line;
@@ -60,7 +65,7 @@ for (;;) {
         $sigmsg = $sigmsg->{envelope};
         my $datamsg = $sigmsg->{dataMessage};
 
-        my $sender = (defined $sigmsg->{source}) ? $sigmsg->{source} : "";
+        my $sender = (defined $sigmsg->{sourceName}) ? $sigmsg->{sourceName} : $sig->{anon};
         my $group = (defined $datamsg->{groupInfo}->{groupId}) ? $datamsg->{groupInfo}->{groupId} : "";
         my $attach = (defined $datamsg->{attachments}) ? $datamsg->{attachments} : undef;
 
@@ -80,53 +85,12 @@ for (;;) {
             $quote = $sav if $@; # try undecoded string as last resort
         }
 
-        # anonymize sender telephone
-        my $anonsender = $sender;
-        if (defined $sig->{nicks}->{$sender}) {
-
-            $anonsender = $sig->{nicks}->{$sender};
-        } else {
-
-            $anonsender =~ s/.*(\d\d\d\d)$/$cfg->{common}->{anon}-$1/;
-            $sig->{nicks}->{$sender} = $anonsender;
-            nickhelp($sig,$sender,$anonsender);
-            setalias($sig,$sender,$anonsender);
-        }
-
-        # check for setnick command
-        if ($text =~ /^!setnick/) {
-            (my $nick = $text) =~ s/^!setnick.//s;
-            if ($nick) {
-                setalias($sig,$sender,$nick);
-                $sig->{nicks}->{$sender} = $nick;
-                $text = "$anonsender is now known as $nick\n";
-
-                # notify the signal group
-                Hermod::relay2sig($text,$sig,$dbg);
-
-                # notify chats
-                $text = "[sig] $text";
-                Hermod::relay2irc($text,$irc,"",$dbg);
-                Hermod::relay2mtx($text,$mat,$dbg);
-                Hermod::relay2mm($text,$mm,$dbg);
-                Hermod::relay2dis($text,$dis,$dbg);
-                Hermod::relay2tel($tel,$text);
-
-                next;
-            }
-        } elsif ($text =~ /^!users/) {
-
-            # user list asked; relay command to hermod
-            Hermod::relay2irc("CMD!SIG!users\n",$irc,"");
-            next;
-        }
-
         # only relay group messages with contents
         next unless $group eq $sig->{gid};
         next unless $text or $attach;
 
         # relay to all chats
-        my $pre = "[sig] $anonsender: ";
+        my $pre = "[sig] $sender: ";
         if ($text =~ /\S/) {
 
             Hermod::relay2tel($tel,"$pre$quote$text\n",$dbg);
@@ -142,8 +106,8 @@ for (;;) {
             rename "$sig->{attachments}/$att->{id}", "$sig->{attachments}/$att->{id}.$ext";
             my $type = ($att->{contentType} =~ /image/) ? 'photo' : 'document';
 
-            my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $anonsender\n";
-            my $msg = "[sig] **$anonsender sends a $type: $sig->{url}/$att->{id}.$ext\n";
+            my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $sender\n";
+            my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}.$ext\n";
 
             (defined $mm->{bearer}) ?
                 Hermod::relayFile2mm($filemsg,$mm,$dbg) : 
@@ -154,7 +118,6 @@ for (;;) {
             Hermod::relay2irc($msg,$irc,"",$dbg);
         }
     }
-    close $dbus;
 }
 
 sub signalinfilereader {
@@ -187,35 +150,3 @@ sub signalinfilereader {
         }
     }
 }
-
-sub getalias {
-    my $sig = shift;
-    my $alias;
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$sig->{db}", "", "", { RaiseError => 1 }, ) or die $DBI::errstr;
-    my $obj = $dbh->prepare("select * from alias");
-    $obj->execute() or die $DBI::errstr;
-
-    while (my $row = $obj->fetchrow_hashref()) {
-        $alias->{$row->{phone}} = $row->{nick};
-    }
-    return $alias;
-}
-
-sub setalias {
-    my ($sig,$phone,$nick) = @_;
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$sig->{db}", "", "", { RaiseError => 1 }, ) or die $DBI::errstr;
-    $dbh->do("insert or replace into alias (phone,nick) values (?,?)", undef, $phone, $nick) or die $DBI::errstr;
-    $dbh->disconnect();
-}
-
-sub nickhelp {
-    my ($sig,$phone,$nick) = @_;
-    my $text = 'You do not have a nickname set. You are now known as '.$nick;
-    $text .= '. To change this, simply type !setnick yournickname in the group or in a private message to me.';
-    my ($out, $err, $ret) = tee {
-        system($sig->{cli},"-u",$sig->{phone},"send","-m","$text",$phone);
-        system($sig->{cli},"--dbus","send","-m","$text",$phone);
-    };
-    print $dbg $out, $err if defined $dbg;
-}
-
