@@ -33,7 +33,6 @@ unless (defined $cfg->{signal}->{phone} and defined $cfg->{signal}->{cli} and
 }
 
 my $sig = $cfg->{signal};
-$sig->{nicks} = getalias($sig);
 $ENV{JAVA_HOME} = $sig->{JAVA_HOME} if defined $sig->{JAVA_HOME};
 open my $dbg, ">>", $sig->{debug} if defined $sig->{debug};
 my $tel = $cfg->{telegram} if defined $cfg->{telegram};
@@ -115,7 +114,7 @@ for (;;) {
         $sigmsg = $sigmsg->{envelope};
         my $datamsg = $sigmsg->{dataMessage};
 
-        my $sender = (defined $sigmsg->{source}) ? $sigmsg->{source} : "";
+        my $sender = (defined $sigmsg->{sourceName}) ? $sigmsg->{sourceName} : "Anonymous Pirat";
         my $group = (defined $datamsg->{groupInfo}->{groupId}) ? $datamsg->{groupInfo}->{groupId} : "";
         my $attach = (defined $datamsg->{attachments}) ? $datamsg->{attachments} : undef;
 
@@ -123,22 +122,17 @@ for (;;) {
         my $text = ''; $sav = $msg;
         eval { $text .= decode_utf8($msg, Encode::FB_QUIET) while $msg; };
         $text = $sav if $@; # try undecoded string as last resort
+        my $apidata->{text} = $sav;
 
         # is the message a quote
         my $quote = "";
         if (defined $datamsg->{quote}{text}) {
             my $qtext = $datamsg->{quote}{text}; chomp $qtext;
+            $apidata->{quote} = $qtext;
             $qtext = (length($qtext) > 100) ? "(reply to ". substr($qtext,0,100) ."...)\n\n" : "(reply to: $qtext)\n\n";
             $sav = $qtext;
             eval { $quote .= decode_utf8($qtext, Encode::FB_QUIET) while $qtext; };
             $quote = $sav if $@; # try undecoded string as last resort
-        }
-
-        if (defined $sig->{nicks}->{$sender}) {
-            # old style aliases, to be removed
-            $sender = $sig->{nicks}->{$sender};
-        } else {
-            $sender = (defined $sigmsg->{sourceName}) ? $sigmsg->{sourceName} : "Anonymous Pirat";
         }
 
         # only relay group messages with contents
@@ -149,12 +143,13 @@ for (;;) {
         next if $sig->{dryrun};
 
         # relay to all chats
+        $apidata->{sender} = "$sender on signal";
         my $pre = "[sig] $sender: ";
+
         if ($text =~ /\S/) {
 
             Hermod::relay2tel($tel,"$pre$quote$text\n",$dbg) if defined $tel;
             Hermod::relay2irc("$quote$text\n",$irc,$pre,$dbg) if defined $irc;
-            Hermod::relay2mm("$pre$quote$text\n",$mm,$dbg) if defined $mm;
             Hermod::relay2mtx("$pre$quote$text\n",$mat,$dbg) if defined $mat;
             Hermod::relay2dis("$pre$quote$text\n",$dis,$dbg) if defined $dis;
         }
@@ -167,27 +162,15 @@ for (;;) {
 
             my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $sender\n";
             my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}.$ext\n";
+            push @{$apidata->{files}}, $sig->{attachments}/$att->{id}.$ext;
 
             Hermod::relayFile2tel($filemsg,$tel,$type,$dbg) if defined $tel;
-            Hermod::relayFile2mm($filemsg,$mm,$dbg) if defined $mm;
             Hermod::relay2mtx($msg,$mat,$dbg) if defined $mat;
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
             Hermod::relayToFile($msg, $irc->{infile}, $dbg) if defined $irc;
         }
+        Hermod::relay2mmapi($apidata, $mm, $dbg) if $apidata->{text} or $apidata->{files};
     }
-}
-
-sub getalias {
-    my $sig = shift;
-    my $alias;
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$sig->{db}", "", "", { RaiseError => 1 }, ) or die $DBI::errstr;
-    my $obj = $dbh->prepare("select * from alias");
-    $obj->execute() or die $DBI::errstr;
-
-    while (my $row = $obj->fetchrow_hashref()) {
-        $alias->{$row->{phone}} = $row->{nick};
-    }
-    return $alias;
 }
 
 sub notify {
