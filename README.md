@@ -126,23 +126,6 @@ look at its output; when something is said in the signal group you will see outp
 ```
 Update **signal**->**gid** in hermod.toml  with the **groupId** in this output.
 
-The signal poller does not see usernames, only telephone numbers. It would be kind of rude to relay these telephone numbers to Telegram or IRC, so the telephone numbers are anonymized as "Anonymous-XXXX", where XXXX are the last 4 numbers of the telephone number.
-
-The bot keeps a small sqlite database **signal**->**db**, used for mapping signal telephone numbers (in the signal group) to nicknames. Members of the signal group can set their nick by issuing the command:
-```text
-!setnick nickname
-```
-In the signal group. The bot will update the mapping in the database and confirm this by saying:
-```text
-anonymous-XXXX is now known as nickname
-```
-In all channels.
-
-You need to create an sqlite database file:
-```sql
-sqlite> CREATE TABLE alias (phone text unique not null, nick text);
-```
-
 ## Directories for attachments and urls
 
 The photo's and attachments send by people in telegram and signal groups are downloaded and placed in suitable directories. For Telegram, use the **telegram-\>attachments** configuration option. Make sure this directory is shared over a HTTP webserver like apache and it is writeable by the webserver. Configure **telegram-\>url** to point to this same directory.

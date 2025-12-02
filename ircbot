@@ -224,29 +224,6 @@ sub irc_quit {
     }
 }
 
-sub irc_353 {
-
-    # RPL_NAMREPLY
-    my ($names) = @_[ARG1];
-    $names =~ s/:(.*)$/$1/;
-    my @users = split / /, $names;
-
-    my $msg = "IRC users: " . (join ', ', @users[2..$#users]) . "\n";
-    my $text = '';
-    $text .= decode_utf8($msg, Encode::FB_QUIET) while $msg;
-
-    if (defined $cfg->{irc}->{names_asked} and $cfg->{irc}->{names_asked} eq 'TEL') {
-
-        $text .= "Signal users: " . signalusers() . "\n" if defined $sig->{db};
-        Hermod::relay2tel($tel,$text);
-
-    } elsif (defined $cfg->{irc}->{names_asked} and $cfg->{irc}->{names_asked} eq 'SIG') {
-
-        $text .= "Telegram users: " . teleusers() . "\n" if defined $tel->{db};
-        Hermod::relay2sig($text,$sig,$dbg);
-    }
-}
-
 sub irc_tail_input {
 
     # handle text added to irc->infile
@@ -321,37 +298,3 @@ sub _default {
     }
 }
 
-sub teleusers {
-
-    # returns list of telegram users as string
-    my $users = '';
-    return $users unless defined $tel;
-    eval {
-        my $dbh = DBI->connect("dbi:SQLite:dbname=$tel->{db}", "", "", { RaiseError => 1 }, );
-        my $st = $dbh->prepare("select * from teleusers");
-        $st->execute();
-        while (my $row = $st->fetchrow_hashref()) {
-            $users .= ', ' if $users;
-            $users .= "$row->{first_name}";
-            $users .= " $row->{last_name}" if defined $row->{last_name};
-        }
-    };
-    return "Telegram users: $users\n";
-}
-
-sub signalusers {
-
-    # returns list of signal users as string
-    my $users = '';
-    return $users unless defined $sig;
-    eval {
-        my $dbh = DBI->connect("dbi:SQLite:dbname=$sig->{db}", "", "", { RaiseError => 1 }, );
-        my $st = $dbh->prepare("select * from alias");
-        $st->execute();
-        while (my $row = $st->fetchrow_hashref()) {
-            $users .= ', ' if $users;
-            $users .= "$row->{nick}";
-        }
-    };
-    return "Signal users: $users\n";
-}

@@ -36,14 +36,6 @@ my $sig = $cfg->{signal} if defined $cfg->{signal};
 my $mm = $cfg->{mattermost} if defined $cfg->{mattermost};
 my $dis = $cfg->{discord} if defined $cfg->{discord};
 
-# bots cannot get a list of group members, so we keep a database
-my $dbh = DBI->connect("dbi:SQLite:dbname=$tel->{db}", "", "", { RaiseError => 0 }, )
-        if defined $tel->{db};
-my $st_ins = $dbh->prepare("replace into teleusers (id,first_name,last_name,username,is_bot) values (?,?,?,?,?)")
-        if defined $dbh;
-my $st_del = $dbh->prepare("delete from teleusers where id = ?")
-        if defined $dbh;
-
 while (my $cgi = CGI::Fast->new) {
     my $body = (defined $cgi->param('POSTDATA')) ? $cgi->param('POSTDATA') : '{}';
     my $dj = decode_json( $body );
