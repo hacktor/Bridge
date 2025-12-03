@@ -145,7 +145,6 @@ while (my $cgi = CGI::Fast->new) {
         if (defined $msg->{new_chat_members}) {
             my $members = '';
             foreach my $m (@{$msg->{new_chat_members}}) {
-                $st_ins->execute($m->{id},$m->{first_name},$m->{last_name},$m->{username},$m->{is_bot}) if defined $st_ins;
                 $members .= ', ' if $members;
                 $members .= "$m->{first_name}";
                 $members .= " $m->{last_name}" if $m->{last_name};
@@ -164,7 +163,6 @@ while (my $cgi = CGI::Fast->new) {
         
         # look for leaving chat members
         if (defined $msg->{left_chat_member}->{id}) {
-            $st_del->execute($msg->{left_chat_member}->{id}) if defined $st_del;
             $text = "[tel] $msg->{left_chat_member}->{first_name} left the chat\n";
 
             # relay to all chats
@@ -174,16 +172,6 @@ while (my $cgi = CGI::Fast->new) {
             Hermod::relay2dis($text,$dis,$dbg);
             Hermod::relayToFile($text,$sig->{infile},$dbg) if defined $sig->{infile};
             ok("Leaving member: $msg->{left_chat_member}->{first_name}\n");
-            next;
-        }
-
-        # look for commands
-        if ($text =~ /!users/) {
-
-            # user list asked; relay command to hermod
-            Hermod::relay2irc("CMD!TEL!users\n",$irc,"",$dbg);
-
-            ok("!users command relayed for $first $last\n");
             next;
         }
 
