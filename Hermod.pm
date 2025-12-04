@@ -164,6 +164,38 @@ sub relay2mmapi {
     }
 }
 
+sub relay2sigapi {
+
+    # Arguments the sub expects:
+    # $hr = {
+    #   sender => "visible username in message",
+    #   quote  => "markdown text to be quoted",
+    #   text   => "normal text",
+    #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
+    #   file   => "/path/to/file"   # optional
+    # }
+    # $sig : hashref signal config from hermod.tom
+    # $dbg : filehandle to debug log (optional)
+
+    my ($hr, $sig, $dbg) = @_;
+    if ($sig->{infile} && "$sig->{transport}" ne "dbus") {
+        open my $fh, ">>", $sig->{infile};
+        print $fh encode_json($hr)."\n";
+        return;
+    }
+    if ("$sig->{transport}" eq "dbus") {
+        my $ua = LWP::UserAgent->new;
+        my @file_ids;
+
+        if ($hr->{files} && @{$hr->{files}}) {
+            foreach my $file (@{$hr->{files}}) {
+                next unless -e $file;
+            }
+        }
+        ## TODO
+    }
+}
+
 sub relayFile2mm {
 
     my ($line,$mm,$dbg) = @_;
@@ -217,12 +249,12 @@ sub relayFile2mm {
 
 sub relay2mtx {
 
-    my ($line,$mat,$dbg) = @_;
-    return unless defined $mat;
+    my ($line,$mtx,$dbg) = @_;
+    return unless defined $mtx and $line;
 
     # we relay straight to matrix
-    (my $posturl = $mat->{posturl}) =~ s/__ROOM__/$mat->{room}/;
-    $posturl =~ s/__TOKEN__/$mat->{token}/;
+    (my $posturl = $mtx->{posturl}) =~ s/__ROOM__/$mtx->{room}/;
+    $posturl =~ s/__TOKEN__/$mtx->{token}/;
 
     if ($line =~ /^FILE!/) {
 
