@@ -128,5 +128,5 @@ sub ok {
 sub nok {
     my $result = shift;
     print CGI->header(-type => 'application/json');
-    print '{"ok":false,"status":502,"error":"'.$result.'}'."\n\n";
+    print '{"ok":false,"status":502,"error":"'.$result.'"}'."\n\n";
 }
