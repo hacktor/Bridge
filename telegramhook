@@ -13,7 +13,6 @@ use CGI::Fast qw/:standard/;
 use JSON;
 use TOML;
 use Text::Unidecode;
-use DBI;
 use Hermod;
 
 open my $fh, '<', "/etc/hermod.toml" or die "error opening configuration $!";
@@ -31,7 +30,7 @@ my $tel = $cfg->{telegram};
 open my $dbg, ">>:utf8", $tel->{debug} if defined $tel->{debug};
 
 my $irc = $cfg->{irc} if defined $cfg->{irc};
-my $mat = $cfg->{matrix} if defined $cfg->{matrix};
+my $mtx = $cfg->{matrix} if defined $cfg->{matrix};
 my $sig = $cfg->{signal} if defined $cfg->{signal};
 my $mm = $cfg->{mattermost} if defined $cfg->{mattermost};
 my $dis = $cfg->{discord} if defined $cfg->{discord};
@@ -53,6 +52,8 @@ while (my $cgi = CGI::Fast->new) {
         my $first = (defined $msg->{from}->{first_name}) ? $msg->{from}->{first_name} : "";
         my $last = (defined $msg->{from}->{last_name}) ? $msg->{from}->{last_name} : "";
         my $caption = (defined $msg->{caption}) ? $msg->{caption} : "";
+        my $apidata->{text} = $text || $caption;
+        $apidata->{sender} = "$first $last on telegram:";
         
         # look for photo's and documents
         my ($type,$doc,$mime);
@@ -91,6 +92,7 @@ while (my $cgi = CGI::Fast->new) {
                     $fline .= ": $caption" if $caption;
                     $ircfline = "** sends $type: $tel->{url}/$file";
                     $ircfline .= " with caption: $caption" if $caption;
+                    push @{$apidata->{files}}, $tel->{attachments}/$file;
                 } else {
                     print $dbg "Error getting $type $name $file\n" if defined $dbg;
                 }
@@ -103,9 +105,12 @@ while (my $cgi = CGI::Fast->new) {
             my $p = $msg->{poll};
             $text .= "\n" if $text;
             $text .= "Poll: $p->{question}\n";
+            $apidata->{text} .= "\n" if $apidata->{text};
+            $apidata->{text} .= "Poll: $p->{question}\n";
             my $i;
             for my $o (@{$p->{options}}) {
                 $text .= ++$i.") $o->{text}\n";
+                $apidata->{text} .= ++$i.") $o->{text}\n";
             }
         }
 
@@ -115,16 +120,21 @@ while (my $cgi = CGI::Fast->new) {
             $text .= "\n" if $text;
             $text .= "sends a $sticknam sticker ";
             $text .= $msg->{sticker}->{emoji} if defined $msg->{sticker}->{emoji};
+            $apidata->{text} .= "\n" if $apidata->{text};
+            $apidata->{text} .= "sends a $sticknam sticker ";
+            $apidata->{text} .= $msg->{sticker}->{emoji} if defined $msg->{sticker}->{emoji};
         }
         
         # is the message a reply?
-        $text = "(reply to: $msg->{reply_to_message}->{text}) \n" . $text if defined $msg->{reply_to_message} and
-            $msg->{reply_to_message}->{text};
+        if (defined $msg->{reply_to_message} and $msg->{reply_to_message}->{text}) {
+            $text = "(reply to: $msg->{reply_to_message}->{text}) \n" . $text;
+            $apidata->{quote} = $msg->{reply_to_message}->{text};
+            $apidata->{quote} =~ s/\s*$//;
+            $apidata->{quote} =~ s/^\> //;
+        }
 
         # is the message a forward?
         if (defined $msg->{forward_from_chat}->{id} or defined $msg->{forward_from}->{id}) {
-            my $forw_id = (defined $msg->{forward_from}->{id}) ? $msg->{forward_from}->{id} :
-                $msg->{forward_from_chat}->{id};
 
             my $title = (defined $msg->{forward_from}->{title}) ? $msg->{forward_from}->{title} :
                 (defined $msg->{forward_from_chat}->{title}) ? $msg->{forward_from_chat}->{title} :
@@ -134,6 +144,9 @@ while (my $cgi = CGI::Fast->new) {
 
             $text = "[Fwd from $title]: ";
             $text .= ($msg->{text}) ? "$msg->{text}\n" : "\n";
+            $apidata->{sender} = "Forwarded from $title";
+            $apidata->{text} = $msg->{text};
+
             if ($ircfline) {
                 $ircfline =~ s/\*\* sends //;
             }
@@ -141,62 +154,34 @@ while (my $cgi = CGI::Fast->new) {
 
         # is the message a channel post?
         
-        # look for new chat members
-        if (defined $msg->{new_chat_members}) {
-            my $members = '';
-            foreach my $m (@{$msg->{new_chat_members}}) {
-                $members .= ', ' if $members;
-                $members .= "$m->{first_name}";
-                $members .= " $m->{last_name}" if $m->{last_name};
-            }
-            $text = "[tel] $members joined the chat\n";
-
-            # relay to all chats
-            Hermod::relay2irc($text,$irc,"",$dbg);
-            Hermod::relay2mtx($text,$mat,$dbg);
-            Hermod::relay2mm($text,$mm,$dbg);
-            Hermod::relay2dis($text,$dis,$dbg);
-            Hermod::relayToFile($text,$sig->{infile},$dbg) if defined $sig->{infile};
-            ok("New member(s): $members\n");
-            next;
-        }
-        
-        # look for leaving chat members
-        if (defined $msg->{left_chat_member}->{id}) {
-            $text = "[tel] $msg->{left_chat_member}->{first_name} left the chat\n";
-
-            # relay to all chats
-            Hermod::relay2irc($text,$irc,"",$dbg);
-            Hermod::relay2mtx($text,$mat,$dbg);
-            Hermod::relay2mm($text,$mm,$dbg);
-            Hermod::relay2dis($text,$dis,$dbg);
-            Hermod::relayToFile($text,$sig->{infile},$dbg) if defined $sig->{infile};
-            ok("Leaving member: $msg->{left_chat_member}->{first_name}\n");
-            next;
-        }
-
         # optional append file link url
         my $ftext = ($ircfline) ? "$text $ircfline" : $text;
         my $pre = ($text =~ /^[`!]/) ? "" : "[tel] $first $last: ";
 
         Hermod::relay2irc("$ftext\n",$irc,$pre,$dbg);
-        Hermod::relay2mtx("$pre$ftext\n",$mat,$dbg);
+        #Hermod::relay2mtx("$pre$ftext\n",$mtx,$dbg);
         Hermod::relay2dis("$pre$ftext\n",$dis,$dbg);
 
+use Data::Dumper;
+print $dbg Dumper $apidata;
+        Hermod::relay2mtxapi($apidata, $mtx, $dbg);
+        Hermod::relay2sigapi($apidata, $sig, $dbg);
+        Hermod::relay2mmapi($apidata, $mm, $dbg);
+
         # for signal, mattermost we skip document, photo links as they are uploaded
-        if ($text !~ /\*\* sends /) {
-            Hermod::relayToFile("$pre$text\n",$sig->{infile},$dbg) if $text !~ /\*\* sends /;
-            Hermod::relay2mm("$pre$text\n",$mm,$dbg) if $text !~ /\*\* sends /;
-        }
+        #if ($text !~ /\*\* sends /) {
+        #    Hermod::relayToFile("$pre$text\n",$sig->{infile},$dbg) if $text !~ /\*\* sends /;
+        #    Hermod::relay2mm("$pre$text\n",$mm,$dbg) if $text !~ /\*\* sends /;
+        #}
 
         # print file line to signal for uploading. same for mattermost when there is a token
-        if ($fline) {
+        #if ($fline) {
 
-            Hermod::relayToFile("$fline\n",$sig->{infile},$dbg);
-            (defined $mm->{bearer}) ?
-                Hermod::relayFile2mm($fline,$mm,$dbg) :
-                Hermod::relay2mm("$pre$ftext",$mm,$dbg);
-        }
+        #    Hermod::relayToFile("$fline\n",$sig->{infile},$dbg);
+        #    (defined $mm->{bearer}) ?
+        #        Hermod::relayFile2mm($fline,$mm,$dbg) :
+        #        Hermod::relay2mm("$pre$ftext",$mm,$dbg);
+        #}
     }
     ok();
 }

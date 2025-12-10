@@ -15,17 +15,19 @@ unless ($cfg) {
 
 my $tel = $cfg->{telegram} if defined $cfg->{telegram};
 my $irc = $cfg->{irc} if defined $cfg->{irc};
-my $mat = $cfg->{matrix} if defined $cfg->{matrix};
+my $mtx = $cfg->{matrix} if defined $cfg->{matrix};
 my $sig = $cfg->{signal} if defined $cfg->{signal};
 my $dis = $cfg->{discord} if defined $cfg->{discord};
 
 my $mm = $cfg->{mattermost};
-unless (defined $mm->{intoken} and defined $mm->{channel_id} and defined $mm->{user_id}) {
+open my $dbg, ">>", $mm->{debug} if defined $mm->{debug};
+
+unless (defined $mm->{intoken} and defined $mm->{channel_id} and defined $mm->{bearer}) {
     print CGI->header(-type => 'application/json');
-    print '{"ok": false, "status": 500, "error": "token, channel_id or user_id undefined"}'."\n\n";
+    print '{"ok": false, "status": 500, "error": "token, channel_id or bearer undefined"}'."\n\n";
+    print $dbg '{"ok": false, "status": 500, "error": "token, channel_id undefined"}'."\n\n";
     exit;
 }
-open my $dbg, ">>", $mm->{debug} if defined $mm->{debug};
 
 while (my $cgi = CGI::Fast->new) {
 
@@ -37,20 +39,27 @@ while (my $cgi = CGI::Fast->new) {
     eval {
         $dj = decode_json( $body );
     };
-    if ($@) { nok($@); next; }
+    if ($@) {
+        print $dbg "$@\n";
+        nok($@);
+        next;
+    }
 
     # check intoken, channel and not from me
     if ($dj->{token} eq $mm->{intoken} and $dj->{channel_id} eq $mm->{channel_id} and $dj->{user_id} ne $mm->{user_id}) {
 
         my $text = "$dj->{text}\n";
         my $pre = "[mm] $dj->{user_name}: ";
+        my $apidata->{text} = $dj->{text};
+        $apidata->{sender} = "$dj->{user_name} on mattermost";
+        $apidata->{quote} = get_quote($dj->{post_id}, $mm, $dbg);
 
         # send to other chats
-        Hermod::relay2irc($text,$irc,$pre,$dbg);
-        Hermod::relay2tel($tel,"$pre$text",$dbg);
-        Hermod::relay2mtx("$pre$text", $mat, $dbg);
-        Hermod::relay2dis("$pre$text", $dis, $dbg);
-        Hermod::relayToFile("$pre$text", $sig->{infile}, $dbg) if defined $sig->{infile};
+        Hermod::relay2irc($text,$irc,$pre,$dbg) if $irc;
+        #Hermod::relay2tel($tel,"$pre$text",$dbg) if $tel;
+        Hermod::relay2mtx("$pre$text", $mtx, $dbg) if $mtx;
+        Hermod::relay2dis("$pre$text", $dis, $dbg) if $dis;
+        #Hermod::relayToFile("$pre$text", $sig->{infile}, $dbg) if $sig;
 
         if ($dj->{file_ids}) {
 
@@ -61,18 +70,54 @@ while (my $cgi = CGI::Fast->new) {
                 if (my $link = Hermod::getmmlink($id,$mm,$dbg)) {
 
                     $pre = "[mm] **$dj->{user_name} sends a file: ";
+                    push @{$apidata->{files}}, $link;
 
                     # Relay links to other chats
-                    Hermod::relay2irc($link,$irc,$pre,$dbg);
-                    Hermod::relay2tel($tel,"$pre$link\n",$dbg);
-                    Hermod::relay2mtx("$pre$link\n",$mat,$dbg);
-                    Hermod::relay2dis("$pre$link\n",$dis,$dbg);
-                    Hermod::relayToFile("$pre$link\n",$sig->{infile},$dbg) if defined $sig->{infile};
+                    Hermod::relay2irc($link,$irc,$pre,$dbg) if $irc;
+                    #Hermod::relay2tel($tel,"$pre$link\n",$dbg) if $tel;
+                    Hermod::relay2mtx("$pre$link\n",$mtx,$dbg) if $mtx;
+                    Hermod::relay2dis("$pre$link\n",$dis,$dbg) if $dis;
+                    #Hermod::relayToFile("$pre$link\n",$sig->{infile},$dbg) if $sig;
                 }
             }
         }
+        Hermod::relay2sigapi($apidata, $sig, $dbg);
+        Hermod::relay2telapi($apidata, $tel, $dbg);
     }
     ok();
+}
+
+sub get_quote {
+    my ($post_id, $mm, $dbg) = @_;
+
+    my $ua = LWP::UserAgent->new;
+    my $json_parser = JSON->new->allow_nonref;
+
+    my $res = $ua->get("$mm->{api}/posts/$post_id/thread", 'Authorization' => "Bearer $mm->{bearer}");
+    return unless $res->is_success;
+
+    my $data = decode_json($res->decoded_content);
+    my @posts = values %{$data->{posts}};
+
+    my @ordered = sort { $a->{create_at} <=> $b->{create_at} } @posts;
+
+    # Find position of our post_id
+    my $index = -1;
+    for (my $i; $i < @ordered; $i++) {
+        if ($ordered[$i]->{id} eq $post_id) {
+            $index = $i;
+            last;
+        }
+    }
+
+    # Determine previous post (if any)
+    my $quote = undef;
+    if ($index > 0) {
+        my $prev_post = $ordered[$index - 1];
+        $quote = $prev_post->{message};
+    }
+
+    return $quote;
 }
 
 sub ok {

@@ -54,7 +54,7 @@ eval {
 if ($@) {
     print "Error in json decode $@\n";
     print $out, $err;
-    print $dbg $out, $err if defined $dbg;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
     exit 1;
 }
 
@@ -68,7 +68,7 @@ for (;;) {
     my ($out, $err, $ret) = capture {
         system("curl", "-s", "-XGET", "$syncurl")
     };
-    print $dbg $out, $err if defined $dbg;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
 
     eval {
         $msg = $json->decode($out);

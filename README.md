@@ -21,7 +21,6 @@ Here is a list of perl modules needed for running these scripts:
 Capture::Tiny
 Capture::Tiny
 CGI::Fast
-DBI
 JSON;
 POE::Component::IRC
 POE::Component::IRC::Plugin::FollowTail

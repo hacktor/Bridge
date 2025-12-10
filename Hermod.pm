@@ -8,6 +8,8 @@ use URI::Escape;
 use Capture::Tiny 'capture';
 use Encode qw(encode_utf8);
 use LWP::UserAgent;
+use HTTP::Request::Common qw(POST);
+use HTML::Entities qw(encode_entities);
 use IO::Socket::INET;
 use File::Basename;
 
@@ -15,7 +17,7 @@ sub bridge {
 
     my ($msg,$cfg) = @_;
     return "missing fields in message\n"
-        unless $msg->{user} and $msg->{prefix} and $msg->{text} and $msg->{token} and $msg->{chat};
+        unless $msg->{sender} and $msg->{text} and $msg->{token} and $msg->{chat};
 
     my $json;
     eval {
@@ -93,17 +95,16 @@ sub relay2mmapi {
     # Arguments the sub expects:
     # $hr = {
     #   sender => "visible username in message",
-    #   quote  => "markdown text to be quoted",
+    #   quote  => "markdown text to be quoted",    # optional
     #   text   => "normal text",
     #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
-    #   file   => "/path/to/file"   # optional
     # }
     # $mm  : hashref mattermost config from hermod.tom
     # $dbg : filehandle to debug log (optional)
 
     my ($hr, $mm, $dbg) = @_;
     return unless $mm->{api} && $mm->{channel_id} && $mm->{bearer};
-    my $ua = LWP::UserAgent->new;
+    my $ua = LWP::UserAgent->new( agent => "hermod-mattermost-bot/1.0" );
     my @file_ids;
 
     if ($hr->{files} && @{$hr->{files}}) {
@@ -135,13 +136,17 @@ sub relay2mmapi {
         }
     }
 
+use Data::Dumper;
+print $dbg "mmapi apidata:\n" . Dumper $hr;
     # ---------- MESSAGE BODY ----------
-    my $message = "";
-
-    $message .= "**$hr->{sender}:**\n\n" if $hr->{sender};
-    $message .= "> $hr->{quote}\n\n"     if $hr->{quote};
+    my ($message,$quote);
+    chomp $hr->{sender};
+    $quote .= "> $_\n" for split /\n/, $hr->{quote};
+    $message .= "**$hr->{sender}**\n\n" if $hr->{sender};
+    $message .= $quote . "\n"            if $hr->{quote};
     $message .= $hr->{text}              if $hr->{text};
 
+print $dbg "message:\n" . $message . "\n";
     # ---------- POST MESSAGE ----------
     my $post_url = "$mm->{api}/posts";
 
@@ -169,22 +174,25 @@ sub relay2sigapi {
     # Arguments the sub expects:
     # $hr = {
     #   sender => "visible username in message",
-    #   quote  => "markdown text to be quoted",
+    #   quote  => "markdown text to be quoted",    # optional
     #   text   => "normal text",
     #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
-    #   file   => "/path/to/file"   # optional
     # }
     # $sig : hashref signal config from hermod.tom
     # $dbg : filehandle to debug log (optional)
 
     my ($hr, $sig, $dbg) = @_;
     if ($sig->{infile} && "$sig->{transport}" ne "dbus") {
+        $hr->{sender} = "$hr->{sender}\n\n";
+        my $quote;
+        $quote .= "> " . $_ . "\n" for split /\n/, $hr->{quote};
+        $hr->{quote} = $quote . "\n\n" if $quote;
         open my $fh, ">>", $sig->{infile};
         print $fh encode_json($hr)."\n";
         return;
     }
     if ("$sig->{transport}" eq "dbus") {
-        my $ua = LWP::UserAgent->new;
+        my $ua = LWP::UserAgent->new( agent => "hermod-signal-bot/1.0" );
         my @file_ids;
 
         if ($hr->{files} && @{$hr->{files}}) {
@@ -194,6 +202,105 @@ sub relay2sigapi {
         }
         ## TODO
     }
+}
+
+sub relay2telapi {
+
+    # Arguments the sub expects:
+    # $hr = {
+    #   sender => "visible username in message",
+    #   quote  => "markdown text to be quoted",    # optional
+    #   text   => "normal text",
+    #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
+    # }
+    # $tel : hashref telegram config from hermod.tom
+    # $dbg : filehandle to debug log (optional)
+
+    my ($hr, $tel, $dbg) = @_;
+    my $ua = LWP::UserAgent->new( agent => "hermod-telegram-bot/1.0" );
+
+    # Escape for MarkdownV2
+    my $escape = sub {
+        my $t = shift // '';
+        $t =~ s/([_*\[\]()~`>#+\-=|{}.!])/\\$1/g;
+        return $t;
+    };
+
+    my $text = "*$escape->($hr->{sender})*\n\n";
+    $text .= "\n" if $hr->{quote};
+    $text .= $escape->($hr->{text});
+
+    if ($hr->{files}) {
+        for my $file (@{$hr->{files}}) {
+            my $method = ($file =~ /\.(jpe?g|png|gif)$/i) ? 'sendPhoto' : 'sendDocument';
+            my $field = ($method eq 'sendPhoto') ? 'photo' : 'document';
+            my $req = POST(
+                "https://api.telegram.org/bot$tel->{token}/$method",
+                Content_Type => 'form-data',
+                Content      => [
+                    chat_id    => $tel->{chat_id},
+                    caption    => $text,
+                    parse_mode => "MarkdownV2",
+                    $field     => [$file],
+                ],
+            );
+            my $res = $ua->request($req);
+
+            # caption only at first file
+            $text = "*$escape->($hr->{sender}) sent a file*" if $res->is_success;
+        }
+        return;
+    }
+    # text message
+    my $payload = {
+        chat_id    => $tel->{chat_id},
+        text       => $text,
+        parse_mode => "MarkdownV2",
+    };
+
+    my $res = $ua->post("https://api.telegram.org/bot$tel->{token}/sendMessage", Content => encode_json($payload), 'Content-Type' => 'application/json');
+}
+
+sub relay2mtxapi {
+
+    # Arguments the sub expects:
+    # $hr = {
+    #   sender => "visible username in message",
+    #   quote  => "markdown text to be quoted",    # optional
+    #   text   => "normal text",
+    #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
+    # }
+    # $mtx : hashref matrix config from hermod.tom
+    # $dbg : filehandle to debug log (optional)
+
+    my ($hr, $mtx, $dbg) = @_;
+    (my $posturl = $mtx->{posturl}) =~ s/__ROOM__/$mtx->{room}/;
+    $posturl =~ s/__TOKEN__/$mtx->{token}/;
+
+    my $ua = LWP::UserAgent->new( agent => "hermod-matrix-bot/1.0" );
+
+    my $ftext = "<b>" . encode_entities($hr->{sender}) . "</b>\n\n";
+    $ftext .= "<blockquote>" . encode_entities($hr->{quote}) . "</blockquote>\n\n" if $hr->{quote};
+    $ftext .= encode_entities($hr->{text});
+
+    my $text = "$hr->{sender}\n\n";
+    $text .= "> $_\n" for split /\n/, $hr->{quote};
+    $text .= "\n" if $hr->{quote};
+    $text .= $hr->{text};
+
+    my $req = POST(
+        $posturl,
+        "Content-Type"  => "application/json",
+        "Authorization" => "Bearer $access_token",
+        Content => encode_json({
+            msgtype        => "m.text",
+            body           => $text,
+            format         => "org.matrix.custom.html",
+            formatted_body => $ftext,
+        })
+    );
+
+    my $res = $ua->request($req);
 }
 
 sub relayFile2mm {
@@ -212,11 +319,11 @@ sub relayFile2mm {
         my ($out, $err, $ret) = capture {
             system("curl", "-s", "-XPOST", "-H", "$bearer", "-F", "channel_id=$mm->{channel_id}", "-F", "files=\@$file", "$mm->{api}/files" );
         };
-        print $dbg $out, $err if defined $dbg;
+        print $dbg "$out $err\n" if defined $dbg and ($out or $err);
 
         my $jsonret;
         eval { $jsonret = $json->decode($out); };
-        print $dbg $@ if defined $dbg and $@;
+        print $dbg "$@\n" if defined $dbg and $@;
 
         if (defined $jsonret->{file_infos} and ref $jsonret->{file_infos} eq "ARRAY") {
 
@@ -275,7 +382,7 @@ sub relay2mtx {
     my ($out, $err, $ret) = capture {
         system("curl", "-s", "-XPOST", "-d", "$body", "$posturl");
     };
-    print $dbg $out, $err if defined $dbg;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
 }
 
 sub relay2tel {
@@ -291,7 +398,7 @@ sub relay2tel {
     my ($out, $err, $ret) = capture {
         system("curl", "-s", "https://api.telegram.org/bot$tel->{token}/sendMessage?chat_id=$tel->{chat_id}&text=$telmsg");
     };
-    print $dbg $out, $err if defined $dbg;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
 }
 
 sub relayFile2tel {
@@ -336,7 +443,7 @@ sub relay2dis {
     my ($out, $err, $ret) = capture {
         system("curl", "-s", "-H", "Content-Type: application/json", "-d", "$text", "$dis->{webhook}");
     };
-    print $dbg $out, $err if defined $dbg;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
 }
 
 sub relay2irc {
@@ -355,10 +462,10 @@ sub relay2irc {
         if (length $msg > $irc->{maxmsg}) {
             $msg =~ s/(.{1,$irc->{maxmsg}}\S|\S+)\s+/$1\n/g;
             eval { print $w "$pre$_\n" for split /\n/, $msg; };
-            print $dbg $@ if $@ and defined $dbg;
+            print $dbg "$@\n" if $@ and defined $dbg;
         } else {
             eval { print $w "$pre$msg\n"; };
-            print $dbg $@ if $@ and defined $dbg;
+            print $dbg "$@\n" if $@ and defined $dbg;
         }
     }
     close $w;
@@ -393,7 +500,7 @@ sub relay2sig {
         my ($out, $err, $ret) = capture {
             system($sig->{cli},"--dbus","send","-g",$sig->{gid},"-m","$caption","-a","$file");
         };
-        print $dbg $out, $err if defined $dbg;
+        print $dbg "$out $err\n" if defined $dbg and ($out or $err);
 
     } else {
 
@@ -404,8 +511,3 @@ sub relay2sig {
         my ($out, $err, $ret) = capture {
             system($sig->{cli},"--dbus","send","-g",$sig->{gid},"-m","$text");
         };
-        print $dbg $out, $err if defined $dbg;
-    }
-}
-
-1;

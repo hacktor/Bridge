@@ -12,7 +12,6 @@ use POE qw(Component::IRC Component::IRC::Plugin::FollowTail Component::IRC::Plu
 use URI::Escape;
 use JSON qw( decode_json );
 use TOML;
-use DBI;
 use Hermod;
 use Encode qw( decode_utf8 );
 

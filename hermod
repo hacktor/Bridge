@@ -18,13 +18,13 @@ use Hermod;
 # {                                                                            #
 #   "token": "xxxxxxxyyyyyyyzzzzzzz",                                          #
 #   "chat": "signal",                                                          #
-#   "user": "John Smith",                                                      #
-#   "prefix": "sig",                                                           #
+#   "user": "John Smith on telegram",                                                      #
+#   "quote": "Welcome",                                                           #
 #   "text": "Hi there folks!",                                                 #
-#   "file": "/path/to/file"                                                    #
+#   "files": ["/path/to/file1", "/path/to/file2"]                                                    #
 # }                                                                            #
 #                                                                              #
-# All fields are mandatory, except "file"                                      #
+# All fields are mandatory, except "files" and "quote"                                      #
 #                                                                              #
 # 2021, Ruben de Groot                                                         #
 #                                                                              #

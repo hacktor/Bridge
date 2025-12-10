@@ -14,10 +14,10 @@ use TOML;
 use WWW::Curl::Easy;
 use WWW::Curl::Form;
 use URI::Escape;
-use DBI;
 use Capture::Tiny 'tee';
 use Hermod;
 use Encode qw(decode_utf8);
+use Data::Dumper;
 
 open my $fh, '<', "/etc/hermod.toml" or die "error opening configuration $!";
 my ($cfg, $e) = from_toml do { local $/; <$fh> };
@@ -61,7 +61,27 @@ for (;;) {
 
     # send new messages to signal group
     my $msg ='';
+
     while (my $line = <$tail>) {
+
+        # handle json input
+        eval {
+            my $apidata = decode_json($line);
+            next unless $apidata->{text} or $apidata->{files};
+            $apidata->{sender} = "Anonymous user" unless $apidata->{sender};
+            my $slen = length($apidata->{sender});
+            $msg .= $apidata->{sender};
+            $msg .= $apidata->{quote} if $apidata->{quote};
+            $msg .= "$apidata->{text}";
+            my @cmd = ($sig->{cli},"-u",$sig->{phone},"send","-g", $sig->{gid}, "-m", "$msg", "--text-style", "0:$slen:BOLD");
+            push @cmd, ("-a", $_) for (@{$apidata->{files}});
+            my ($out, $err, $ret) = tee {
+                system(@cmd);
+            };
+            print $dbg "$out $err\n" if defined $dbg and ($out or $err);
+            notify($err) if $err;
+        };
+        next unless $@;
 
         if ($line =~ /^FILE!/) {
 
@@ -73,7 +93,7 @@ for (;;) {
                 system($sig->{cli},"-u",$sig->{phone},"send","-g",$sig->{gid},
                         "-m","$caption","-a","$file");
             };
-            print $dbg $out, $err if defined $dbg;
+            print $dbg "$out $err\n" if defined $dbg and ($out or $err);
             notify($err) if $err;
         } else {
             $msg .= $line;
@@ -87,7 +107,7 @@ for (;;) {
         my ($out, $err, $ret) = tee {
             system($sig->{cli},"-u",$sig->{phone},"send","-g", $sig->{gid}, "-m", "$text");
         };
-        print $dbg $out, $err if defined $dbg;
+        print $dbg "$out $err\n" if defined $dbg and ($out or $err);
         notify($err) if $err;
     }
 
@@ -96,7 +116,7 @@ for (;;) {
     my ($out, $err, $ret) = tee {
         system($sig->{cli},"-u",$sig->{phone},"--output=json","receive");
     };
-    print $dbg $out, $err if defined $dbg;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
     if ($err) {
         notify($err);
         #rely on a restart
@@ -107,7 +127,7 @@ for (;;) {
     for my $line (@lines) {
 
         my $sav;
-        print $dbg $line if defined $dbg;
+        print $dbg "$line\n" if defined $dbg;
 
         my $sigmsg = $json->decode($line);
         next unless defined $sigmsg->{envelope}->{dataMessage};
@@ -148,7 +168,7 @@ for (;;) {
 
         if ($text =~ /\S/) {
 
-            Hermod::relay2tel($tel,"$pre$quote$text\n",$dbg) if defined $tel;
+            #Hermod::relay2tel($tel,"$pre$quote$text\n",$dbg) if defined $tel;
             Hermod::relay2irc("$quote$text\n",$irc,$pre,$dbg) if defined $irc;
             Hermod::relay2mtx("$pre$quote$text\n",$mat,$dbg) if defined $mat;
             Hermod::relay2dis("$pre$quote$text\n",$dis,$dbg) if defined $dis;
@@ -156,20 +176,19 @@ for (;;) {
 
         # relay optional attachments
         foreach my $att (@$attach) {
-            (my $ext = $att->{contentType}) =~ s#.*/##;
-            rename "$sig->{attachments}/$att->{id}", "$sig->{attachments}/$att->{id}.$ext";
             my $type = ($att->{contentType} =~ /image/) ? 'photo' : 'document';
 
-            my $filemsg = "FILE!$sig->{url}/$att->{id}.$ext!$att->{contentType}!$sig->{attachments}/$att->{id}.$ext [sig] $type by $sender\n";
-            my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}.$ext\n";
-            push @{$apidata->{files}}, $sig->{attachments}/$att->{id}.$ext;
+            my $filemsg = "FILE!$sig->{url}/$att->{id}!$att->{contentType}!$sig->{attachments}/$att->{id} [sig] $type by $sender\n";
+            my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}\n";
+            push @{$apidata->{files}}, $sig->{attachments}/$att->{id};
 
-            Hermod::relayFile2tel($filemsg,$tel,$type,$dbg) if defined $tel;
+            #Hermod::relayFile2tel($filemsg,$tel,$type,$dbg) if defined $tel;
             Hermod::relay2mtx($msg,$mat,$dbg) if defined $mat;
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
             Hermod::relayToFile($msg, $irc->{infile}, $dbg) if defined $irc;
         }
         Hermod::relay2mmapi($apidata, $mm, $dbg) if $apidata->{text} or $apidata->{files};
+        Hermod::relay2telapi($apidata, $tel, $dbg) if $apidata->{text} or $apidata->{files};
     }
 }
 
