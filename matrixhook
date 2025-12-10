@@ -1,0 +1,106 @@
+#!/usr/bin/perl -w
+#
+# Matrix Webhook for Hermod Gateway Bot.
+#
+# Keeping a tail on the tomatrix file for messages to send to matrix.
+# Polling the matrix group for new messages. These are send to telegram,
+# signal and/or irc
+#
+# 2025, Ruben de Groot
+
+use strict;
+use JSON;
+use TOML;
+use URI::Escape;
+use Capture::Tiny 'capture';
+use Hermod;
+
+my $msg;
+
+open my $fh, '<', "/etc/hermod.toml" or die "error opening configuration $!";
+my ($cfg, $e) = from_toml do { local $/; <$fh> };
+unless ($cfg) {
+    die "Error parsing toml: $e";
+}
+my $mat = $cfg->{matrix} if defined $cfg->{matrix};
+
+unless (defined $mat->{token} and defined $mat->{room} and defined  $mat->{since}
+    and defined $mat->{syncurl} and defined $mat->{posturl}) {
+    print "Please define matrix->token, room, since, syncurl and posturl\n";
+    print "Press <Ctrl>-C to continue\n";
+    sleep; exit;
+}
+open my $dbg, ">>", $mat->{debug} if defined $mat->{debug};
+my $sig = $cfg->{signal} if defined $cfg->{signal};
+my $tel = $cfg->{telegram} if defined $cfg->{telegram};
+my $irc = $cfg->{irc} if defined $cfg->{irc};
+my $mm = $cfg->{mattermost} if defined $cfg->{mattermost};
+my $dis = $cfg->{discord} if defined $cfg->{discord};
+
+(my $syncurl = $mat->{syncurl}) =~ s/__SINCE__/$mat->{since}/;
+$syncurl =~ s/__TOKEN__/$mat->{token}/;
+(my $posturl = $mat->{posturl}) =~ s/__ROOM__/$mat->{room}/;
+$posturl =~ s/__TOKEN__/$mat->{token}/;
+
+# query first for next_batch
+my $json = JSON->new->allow_nonref;
+my ($out, $err, $ret) = capture {
+    system("curl", "-XGET", "-s", "$syncurl")
+};
+eval {
+    $msg = $json->decode($out);
+    $mat->{since} = $msg->{next_batch} if defined $msg->{next_batch};
+};
+if ($@) {
+    print "Error in json decode $@\n";
+    print $out, $err;
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
+    exit 1;
+}
+
+for (;;) {
+
+    sleep 5; # not to get too tight loop
+
+    # poll the matrix group for new messages
+    ($syncurl = $mat->{syncurl}) =~ s/__SINCE__/$mat->{since}/;
+    $syncurl =~ s/__TOKEN__/$mat->{token}/;
+    my ($out, $err, $ret) = capture {
+        system("curl", "-s", "-XGET", "$syncurl")
+    };
+    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
+
+    eval {
+        $msg = $json->decode($out);
+        next unless defined $msg->{next_batch};
+        $mat->{since} = $msg->{next_batch};
+
+        if (defined $msg->{rooms}->{join}->{$mat->{room}}->{timeline}->{events}) {
+
+            for my $ev (@{$msg->{rooms}->{join}->{$mat->{room}}->{timeline}->{events}}) {
+
+                my $sender = (defined $ev->{sender}) ? $ev->{sender} : "";
+                my $text = (defined $ev->{content}->{body}) ? $ev->{content}->{body} : "";
+                next if $mat->{bot} eq $sender or not $text;
+
+                my $url = (defined $ev->{content}->{url}) ? $ev->{content}->{url} : "";
+                if ($url =~ /^mxc:/) {
+
+                    # rework url to something browsers understand
+                    (my $srv = $url) =~ s#mxc://([a-z\.]+)/.*$#$1#;
+                    (my $id = $url) =~ s#.*/(\w*)#$1#;
+                    $text = "https://$srv/_matrix/media/r0/download/$srv/$id ($text)";
+                }
+
+                my $pre = "[mtx] $sender: ";
+
+                Hermod::relay2tel($tel,"$pre$text\n");
+                Hermod::relay2irc("$text\n",$irc,$pre);
+                Hermod::relay2mm("$pre$text\n",$mm);
+                Hermod::relay2dis("$pre$text\n",$dis);
+                Hermod::relay2sig("$pre$text\n",$sig);
+            }
+        }
+    };
+}
+
