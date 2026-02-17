@@ -105,6 +105,37 @@ x-ratelimit-limit: 101
 ```
 Set the *bearer* variable in the mattermost section of the toml configuration file
 
+### Matrix
+
+The matrixhook replaces matrixpoller. For this to work jou need to control a synapse server. On this server, create a directory, for example /data/application\_services and add a configuration file like this herein. This will work as an outgoing webhook:
+
+```yaml
+id: my-webhook-as
+url: "https://example.org/bots/matrixhook"
+as_token: "secret-as"
+hs_token: "secret-hs"
+sender_localpart: "_webhook"
+namespaces:
+  rooms:
+    - exclusive: true
+      regex: "!xxxxxxxxxxxxxxxxxx:matrix\\.org"
+```
+
+Then add this to homeserver.yaml
+```yaml
+# A list of application service config files to use
+#
+app_service_config_files:
+  - /data/application_services/my-webhook.yaml
+```
+Get an access token through:
+```bash
+curl -XPOST \
+  -H "Content-Type: application/json" \
+  -d '{"type":"m.login.password", "user":"<username>", "password":"<password>"}' \
+  https://your.server/_matrix/client/v3/login
+```
+
 ## Setting up Signal
 
 To connect with Signal, you'll need to install [signal-cli](https://github.com/AsamK/signal-cli)
@@ -158,6 +189,5 @@ You probably want to run these in screen(1) from cron
 @reboot /home/hermod/bin/hermod
 @reboot screen -S ircbot -d -m while true; do /home/hermod/bin/ircbot; done
 @reboot screen -S signal -d -m while true; do /home/hermod/bin/signalbot; done
-@reboot screen -S matrix -d -m while true; do /home/hermod/bin/matrixpoller; done
 @reboot screen -S discord -d -m while true; do /home/hermod/bin/discordbot; done
 ```
