@@ -128,6 +128,7 @@ while (my $cgi = CGI::Fast->new) {
         # is the message a reply?
         if (defined $msg->{reply_to_message} and $msg->{reply_to_message}->{text}) {
             $text = "(reply to: $msg->{reply_to_message}->{text}) \n" . $text;
+            $apidata->{sender} = "$first $last replies to $msg->{from}->{first_name} $msg->{from}->{last_name} on telegram:";
             $apidata->{quote} = $msg->{reply_to_message}->{text};
             $apidata->{quote} =~ s/\s*$//;
             $apidata->{quote} =~ s/^\> //;
@@ -144,7 +145,7 @@ while (my $cgi = CGI::Fast->new) {
 
             $text = "[Fwd from $title]: ";
             $text .= ($msg->{text}) ? "$msg->{text}\n" : "\n";
-            $apidata->{sender} = "Forwarded from $title";
+            $apidata->{sender} = "Forwarded from $title on telegram:";
             $apidata->{text} = $msg->{text};
 
             if ($ircfline) {
@@ -162,8 +163,6 @@ while (my $cgi = CGI::Fast->new) {
         #Hermod::relay2mtx("$pre$ftext\n",$mtx,$dbg);
         Hermod::relay2dis("$pre$ftext\n",$dis,$dbg);
 
-use Data::Dumper;
-print $dbg Dumper $apidata;
         Hermod::relay2mtxapi($apidata, $mtx, $dbg);
         Hermod::relay2sigapi($apidata, $sig, $dbg);
         Hermod::relay2mmapi($apidata, $mm, $dbg);
