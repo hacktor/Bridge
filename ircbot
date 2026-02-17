@@ -43,7 +43,7 @@ my $irc = POE::Component::IRC->spawn(
 
 POE::Session->create(
     package_states => [
-        main => [ qw(_default _start irc_001 irc_public irc_msg irc_join irc_quit irc_nick irc_tail_input irc_ctcp_action irc_353 irc_bot_addressed irc_bot_mentioned lag_o_meter) ],
+        main => [ qw(_default _start irc_001 irc_public irc_msg irc_join irc_quit irc_nick irc_tail_input irc_ctcp_action irc_bot_addressed irc_bot_mentioned lag_o_meter) ],
     ],
     heap => { irc => $irc },
 );
