@@ -23,10 +23,8 @@ showquit    = 1
 [matrix]
 bot         = "@hermod:matrix.org"
 debug       = "/home/hermod/log/matrix.debug"
-posturl     = "https://matrix.org/_matrix/client/r0/rooms/__ROOM__/send/m.room.message?access_token=__TOKEN__"
+server      = "https://matrix.org"
 room        = "!xxxxxxxxxxxxxxxxxx:matrix.org"
-since       = "s9999999999_99999"
-syncurl     = "https://matrix.org/_matrix/client/r0/sync?since=__SINCE__&access_token=__TOKEN__"
 token       = "XXXXXXXXXXXX-XXXXXXXXXXXX"
 
 [signal]
