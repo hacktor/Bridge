@@ -2,13 +2,13 @@
 #
 # Matrix Webhook for Hermod Gateway Bot.
 #
-# Keeping a tail on the tomatrix file for messages to send to matrix.
-# Polling the matrix group for new messages. These are send to telegram,
+# Receives events from matrix homeserver and forwards to telegram, mattermost,
 # signal and/or irc
 #
-# 2025, Ruben de Groot
+# 2026, Ruben de Groot
 
 use strict;
+use CGI::Fast qw/:standard/;
 use JSON;
 use TOML;
 use URI::Escape;
@@ -22,85 +22,78 @@ my ($cfg, $e) = from_toml do { local $/; <$fh> };
 unless ($cfg) {
     die "Error parsing toml: $e";
 }
-my $mat = $cfg->{matrix} if defined $cfg->{matrix};
+my $mtx = $cfg->{matrix} if defined $cfg->{matrix};
 
-unless (defined $mat->{token} and defined $mat->{room} and defined  $mat->{since}
-    and defined $mat->{syncurl} and defined $mat->{posturl}) {
-    print "Please define matrix->token, room, since, syncurl and posturl\n";
+unless (defined $mtx->{token} and defined $mtx->{room} and defined  $mtx->{server} and defined $mtx->{bot}) {
+    print "Please define matrix->token, room, server and bot\n";
     print "Press <Ctrl>-C to continue\n";
     sleep; exit;
 }
-open my $dbg, ">>", $mat->{debug} if defined $mat->{debug};
+open my $dbg, ">>", $mtx->{debug} if defined $mtx->{debug};
 my $sig = $cfg->{signal} if defined $cfg->{signal};
 my $tel = $cfg->{telegram} if defined $cfg->{telegram};
 my $irc = $cfg->{irc} if defined $cfg->{irc};
 my $mm = $cfg->{mattermost} if defined $cfg->{mattermost};
 my $dis = $cfg->{discord} if defined $cfg->{discord};
 
-(my $syncurl = $mat->{syncurl}) =~ s/__SINCE__/$mat->{since}/;
-$syncurl =~ s/__TOKEN__/$mat->{token}/;
-(my $posturl = $mat->{posturl}) =~ s/__ROOM__/$mat->{room}/;
-$posturl =~ s/__TOKEN__/$mat->{token}/;
+while (my $cgi = CGI::Fast->new) {
 
-# query first for next_batch
-my $json = JSON->new->allow_nonref;
-my ($out, $err, $ret) = capture {
-    system("curl", "-XGET", "-s", "$syncurl")
-};
-eval {
-    $msg = $json->decode($out);
-    $mat->{since} = $msg->{next_batch} if defined $msg->{next_batch};
-};
-if ($@) {
-    print "Error in json decode $@\n";
-    print $out, $err;
-    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
-    exit 1;
-}
+    my $body = (defined $cgi->param('PUTDATA')) ? $cgi->param('PUTDATA') : '';
+    unless ($body) { nok("missing body"); next; }
 
-for (;;) {
-
-    sleep 5; # not to get too tight loop
-
-    # poll the matrix group for new messages
-    ($syncurl = $mat->{syncurl}) =~ s/__SINCE__/$mat->{since}/;
-    $syncurl =~ s/__TOKEN__/$mat->{token}/;
-    my ($out, $err, $ret) = capture {
-        system("curl", "-s", "-XGET", "$syncurl")
-    };
-    print $dbg "$out $err\n" if defined $dbg and ($out or $err);
-
+    my ($dj, $apidata);
     eval {
-        $msg = $json->decode($out);
-        next unless defined $msg->{next_batch};
-        $mat->{since} = $msg->{next_batch};
-
-        if (defined $msg->{rooms}->{join}->{$mat->{room}}->{timeline}->{events}) {
-
-            for my $ev (@{$msg->{rooms}->{join}->{$mat->{room}}->{timeline}->{events}}) {
-
-                my $sender = (defined $ev->{sender}) ? $ev->{sender} : "";
-                my $text = (defined $ev->{content}->{body}) ? $ev->{content}->{body} : "";
-                next if $mat->{bot} eq $sender or not $text;
-
-                my $url = (defined $ev->{content}->{url}) ? $ev->{content}->{url} : "";
-                if ($url =~ /^mxc:/) {
-
-                    # rework url to something browsers understand
-                    (my $srv = $url) =~ s#mxc://([a-z\.]+)/.*$#$1#;
-                    (my $id = $url) =~ s#.*/(\w*)#$1#;
-                    $text = "https://$srv/_matrix/media/r0/download/$srv/$id ($text)";
-                }
-
-                my $pre = "[mtx] $sender: ";
-
-                Hermod::relay2tel($tel,"$pre$text\n");
-                Hermod::relay2irc("$text\n",$irc,$pre);
-                Hermod::relay2mm("$pre$text\n",$mm);
-                Hermod::relay2dis("$pre$text\n",$dis);
-                Hermod::relay2sig("$pre$text\n",$sig);
-            }
-        }
+        $dj = decode_json( $body );
     };
+    if ($@) {
+        print $dbg "JSON decode error: $@\n";
+        nok($@);
+        next;
+    }
+    unless ((ref($dj) eq "HASH") and $dj->{'events'}) { nok("Not HASH or no events"); next; }
+    for my $event (@{$dj->{events}}) {
+        print $dbg %$event . "\n" if $dbg;
+        next if $event->{sender} eq $mtx->{bot} or not $event->{sender} or not $event->{content}->{body};
+        next unless $event->{room_id} eq $mtx->{room};
+        $apidata->{sender} = "$event->{sender} in the matrix:";
+        $apidata->{text} = $event->{content}->{body};
+        my $inreply = $event->{content}->{'m.relates_to'}->{'m.in_reply_to'}->{event_id};
+        $apidata->{quote} = getquote($mtx, $inreply) if $inreply;
+        if ($event->{content}->{url} and $event->{content}->{url} =~ /^mxc:/) {
+            # rework url to something browsers understand
+            (my $srv = $event->{content}->{url}) =~ s#mxc://([a-z\.]+)/.*$#$1#;
+            (my $id = $event->{content}->{url}) =~ s#.*/(\w*)#$1#;
+            my ($ext) = $event->{content}->{body} =~ /(\.[^.]+)$/;
+            qx( wget -O $mtx->{attachments}/$id$ext https://$srv/_matrix/media/r0/download/$srv/$id >/dev/null 2>&1 );
+            push @{$apidata->{files}}, "$mtx->{attachments}/$id$ext";
+        }
+        print $dbg %$apidata . "\n" if $dbg;
+        Hermod::relay2sigapi($apidata, $sig, $dbg);
+        Hermod::relay2telapi($apidata, $tel, $dbg);
+        Hermod::relay2mmapi($apidata, $mm, $dbg);
+    }
+    ok();
 }
 
+sub getquote {
+    my ($mtx, $event) = @_;
+    my $url = "$mtx->{server}/_matrix/client/v3/events/$event";
+    my $ua = LWP::UserAgent->new(agent => "perl-matrix-client/1.0", timeout => 10);
+    my $res = $ua->get($url, 'Authorization' => "Bearer $mtx->{token}");
+    return unless $res->is_success;
+
+    my $dj = decode_json($res->decoded_content);
+    my $quote = ($dj->{sender} ne $mtx->{bot}) ? "Reply to $dj->{sender}\n" : '';
+    return $quote . $dj->{content}->{body};
+}
+
+sub ok {
+    print CGI->header(-type => 'application/json');
+    print '{"ok":true,"status":200}'."\n\n";
+}
+
+sub nok {
+    my $result = shift;
+    print CGI->header(-type => 'application/json');
+    print '{"ok":false,"status":502,"error":"'.$result.'"}'."\n\n";
+}
