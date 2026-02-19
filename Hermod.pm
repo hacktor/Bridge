@@ -141,7 +141,7 @@ print $dbg "mmapi apidata:\n" . Dumper $hr;
     # ---------- MESSAGE BODY ----------
     my ($message,$quote);
     chomp $hr->{sender};
-    $quote .= "> $_\n" for split /\n/, $hr->{quote};
+    if ($hr->{quote}) { $quote .= "> $_\n" for split /\n/, $hr->{quote}; }
     $message .= "**$hr->{sender}**\n\n" if $hr->{sender};
     $message .= $quote . "\n"            if $hr->{quote};
     $message .= $hr->{text}              if $hr->{text};
@@ -183,10 +183,9 @@ sub relay2sigapi {
 
     my ($hr, $sig, $dbg) = @_;
     if ($sig->{infile} && "$sig->{transport}" ne "dbus") {
-        $hr->{sender} = "$hr->{sender}\n\n";
+        $hr->{sender} = "$hr->{sender}";
         my $quote;
-        $quote .= "> " . $_ . "\n" for split /\n/, $hr->{quote};
-        $hr->{quote} = $quote . "\n\n" if $quote;
+        $quote .= "> $_\n" for split /\n/, $hr->{quote};
         open my $fh, ">>", $sig->{infile};
         print $fh encode_json($hr)."\n";
         return;
@@ -226,8 +225,8 @@ sub relay2telapi {
         return $t;
     };
 
-    my $text = "*$escape->($hr->{sender})*\n\n";
-    $text .= "\n" if $hr->{quote};
+    my $text = "*$escape->($hr->{sender})*\n";
+    $text .= "> $_\n" for split /\n/, $hr->{quote};
     $text .= $escape->($hr->{text});
 
     if ($hr->{files}) {
@@ -266,7 +265,7 @@ sub relay2mtxapi {
     # Arguments the sub expects:
     # $hr = {
     #   sender => "visible username in message",
-    #   quote  => "markdown text to be quoted",    # optional
+    #   quote  => "text to be quoted",    # optional
     #   text   => "normal text",
     #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
     # }
@@ -280,18 +279,17 @@ sub relay2mtxapi {
     my $ua = LWP::UserAgent->new( agent => "hermod-matrix-bot/1.0" );
 
     my $ftext = "<b>" . encode_entities($hr->{sender}) . "</b>\n\n";
-    $ftext .= "<blockquote>" . encode_entities($hr->{quote}) . "</blockquote>\n\n" if $hr->{quote};
+    $ftext .= "<blockquote>" . encode_entities($hr->{quote}) . "</blockquote>\n" if $hr->{quote};
     $ftext .= encode_entities($hr->{text});
 
-    my $text = "$hr->{sender}\n\n";
-    $text .= "> $_\n" for split /\n/, $hr->{quote};
-    $text .= "\n" if $hr->{quote};
+    my $text = "$hr->{sender}\n";
+    if ($hr->{quote}) { $text .= "> $_\n" for split /\n/, $hr->{quote}; }
     $text .= $hr->{text};
 
     my $req = POST(
         $posturl,
         "Content-Type"  => "application/json",
-        "Authorization" => "Bearer $access_token",
+        "Authorization" => "Bearer $mm->{token}",
         Content => encode_json({
             msgtype        => "m.text",
             body           => $text,
@@ -511,3 +509,8 @@ sub relay2sig {
         my ($out, $err, $ret) = capture {
             system($sig->{cli},"--dbus","send","-g",$sig->{gid},"-m","$text");
         };
+        print $dbg "$out $err\n" if defined $dbg and ($out or $err);
+    }
+}
+
+1;
