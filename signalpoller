@@ -70,14 +70,20 @@ for (;;) {
             next unless $apidata->{text} or $apidata->{files};
             $apidata->{sender} = "Anonymous user" unless $apidata->{sender};
             my $slen = length($apidata->{sender});
-            $msg .= $apidata->{sender};
-            $msg .= $apidata->{quote} if $apidata->{quote};
+            my @style = ("0:$slen:BOLD");
+            my $quote;
+            $quote .= "> $_\n" for split /\n/, $apidata->{quote};
+            my ($qstart, $qlen) = ($slen + 1, length($quote));
+            push @style, "$qstart:$qlen:ITALIC" if $quote;
+            $msg .= "$apidata->{sender}\n";
+            $msg .= "$quote\n" if $apidata->{quote};
             $msg .= "$apidata->{text}";
-            my @cmd = ($sig->{cli},"-u",$sig->{phone},"send","-g", $sig->{gid}, "-m", "$msg", "--text-style", "0:$slen:BOLD");
+            my @cmd = ($sig->{cli},"-u",$sig->{phone},"send","-g", $sig->{gid}, "-m", "$msg", "--text-style", @style);
             push @cmd, ("-a", $_) for (@{$apidata->{files}});
             my ($out, $err, $ret) = tee {
                 system(@cmd);
             };
+            $msg = '';
             print $dbg "$out $err\n" if defined $dbg and ($out or $err);
             notify($err) if $err;
         };
