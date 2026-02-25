@@ -17,7 +17,6 @@ use URI::Escape;
 use Capture::Tiny 'tee';
 use Hermod;
 use Encode qw(decode_utf8);
-use Data::Dumper;
 
 open my $fh, '<', "/etc/hermod.toml" or die "error opening configuration $!";
 my ($cfg, $e) = from_toml do { local $/; <$fh> };
@@ -72,7 +71,7 @@ for (;;) {
             my $slen = length($apidata->{sender});
             my @style = ("0:$slen:BOLD");
             my $quote;
-            $quote .= "> $_\n" for split /\n/, $apidata->{quote};
+            if ($apidata->{quote}) { $quote .= "> $_\n" for split /\n/, $apidata->{quote}; }
             my ($qstart, $qlen) = ($slen + 1, length($quote));
             push @style, "$qstart:$qlen:ITALIC" if $quote;
             $msg .= "$apidata->{sender}\n";
