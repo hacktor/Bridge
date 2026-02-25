@@ -225,9 +225,10 @@ sub relay2telapi {
         return $t;
     };
 
-    my $text = "*$escape->($hr->{sender})*\n";
+    my $text = "*" . $escape->($hr->{sender}) . "*\n";
     $text .= "> $_\n" for split /\n/, $hr->{quote};
     $text .= $escape->($hr->{text});
+    print $dbg "Telegram: $text\n" if $dbg;
 
     if ($hr->{files}) {
         for my $file (@{$hr->{files}}) {
@@ -244,20 +245,16 @@ sub relay2telapi {
                 ],
             );
             my $res = $ua->request($req);
-
-            # caption only at first file
-            $text = "*$escape->($hr->{sender}) sent a file*" if $res->is_success;
         }
-        return;
+    } else {
+        # text message
+        my $payload = {
+            chat_id    => $tel->{chat_id},
+            text       => $text,
+            parse_mode => "MarkdownV2",
+        };
+        my $res = $ua->post("https://api.telegram.org/bot$tel->{token}/sendMessage", Content => encode_json($payload), 'Content-Type' => 'application/json');
     }
-    # text message
-    my $payload = {
-        chat_id    => $tel->{chat_id},
-        text       => $text,
-        parse_mode => "MarkdownV2",
-    };
-
-    my $res = $ua->post("https://api.telegram.org/bot$tel->{token}/sendMessage", Content => encode_json($payload), 'Content-Type' => 'application/json');
 }
 
 sub relay2mtxapi {
