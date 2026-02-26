@@ -96,23 +96,6 @@ sub irc_public {
     my ($sender, $who, $where, $what) = @_[SENDER, ARG0 .. ARG2];
     my $nick = ( split /!/, $who )[0];
 
-    # catch commands
-    if ($what =~ /^!users/i) {
-
-        # send names to IRC, split lines in chunks of ~maxmsg size if necessary
-        for my $text (teleusers(),signalusers()) {
-            next unless $text;
-            if (length $text > $cfg->{irc}->{maxmsg}) {
-                $text =~ s/(.{1,$cfg->{irc}->{maxmsg}}\S|\S+)\s+/$1\n/g;
-                $irc->yield( 'privmsg', $cfg->{irc}->{channel}, "$_" ) for split /\n/, $text;
-            } else {
-                $irc->yield( 'privmsg', $cfg->{irc}->{channel}, "$text" );
-            }
-        }
-        return;
-
-    }
-
     my $msg = "[irc] $nick: $what\n";
     my $text = '';
     $text .= decode_utf8($msg, Encode::FB_QUIET) while $msg;
@@ -129,23 +112,9 @@ sub irc_msg {
     # handle private messages
     my ($who, $what) = @_[ARG0, ARG2];
     my $nick = ( split /!/, $who )[0];
-    if ($what =~ /^!users/) {
 
-        # send names to nick, split lines in chunks of ~maxmsg size if necessary
-        for my $text (teleusers(),signalusers()) {
-            next unless $text;
-            if (length $text > $cfg->{irc}->{maxmsg}) {
-                $text =~ s/(.{1,$cfg->{irc}->{maxmsg}}\S|\S+)\s+/$1\n/g;
-                $irc->yield( 'privmsg', $nick, "$_" ) for split /\n/, $text;
-            } else {
-                $irc->yield( 'privmsg', $nick, "$text" );
-            }
-        }
-        return;
-    }
     # send apologies
-    $irc->yield( 'privmsg', $nick, "Hi, $nick, I don't do private messages, except:" );
-    $irc->yield( 'privmsg', $nick, "!users - list users in other channels (telegram, signal)" );
+    $irc->yield( 'privmsg', $nick, "Hi, $nick, I don't do private messages" );
 }
 
 sub irc_ctcp_action {
@@ -236,14 +205,6 @@ sub irc_tail_input {
         my ($fileinfo,$caption) = split / /, $input, 2; chomp $caption;
         my ($url,$mime) = split /!/, $fileinfo;
         $kernel->post( $sender, 'privmsg', $cfg->{irc}->{channel}, "$caption: $url\n" );
-
-    # check for commands
-    } elsif ($input =~ /^CMD!TEL!users/) {
-        $irc->yield( names => $cfg->{irc}->{channel} );
-        $cfg->{irc}->{names_asked} = 'TEL';
-    } elsif ($input =~ /^CMD!SIG!users/) {
-        $irc->yield( names => $cfg->{irc}->{channel} );
-        $cfg->{irc}->{names_asked} = 'SIG';
 
     # send the message as is
     } else {
