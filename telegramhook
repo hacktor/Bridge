@@ -92,7 +92,7 @@ while (my $cgi = CGI::Fast->new) {
                     $fline .= ": $caption" if $caption;
                     $ircfline = "** sends $type: $tel->{url}/$file";
                     $ircfline .= " with caption: $caption" if $caption;
-                    push @{$apidata->{files}}, $tel->{attachments}/$file;
+                    push @{$apidata->{files}}, "$tel->{attachments}/$file";
                 } else {
                     print $dbg "Error getting $type $name $file\n" if defined $dbg;
                 }
@@ -160,27 +160,12 @@ while (my $cgi = CGI::Fast->new) {
         my $pre = ($text =~ /^[`!]/) ? "" : "[tel] $first $last: ";
 
         Hermod::relay2irc("$ftext\n",$irc,$pre,$dbg);
-        #Hermod::relay2mtx("$pre$ftext\n",$mtx,$dbg);
         Hermod::relay2dis("$pre$ftext\n",$dis,$dbg);
 
         Hermod::relay2mtxapi($apidata, $mtx, $dbg);
         Hermod::relay2sigapi($apidata, $sig, $dbg);
         Hermod::relay2mmapi($apidata, $mm, $dbg);
 
-        # for signal, mattermost we skip document, photo links as they are uploaded
-        #if ($text !~ /\*\* sends /) {
-        #    Hermod::relayToFile("$pre$text\n",$sig->{infile},$dbg) if $text !~ /\*\* sends /;
-        #    Hermod::relay2mm("$pre$text\n",$mm,$dbg) if $text !~ /\*\* sends /;
-        #}
-
-        # print file line to signal for uploading. same for mattermost when there is a token
-        #if ($fline) {
-
-        #    Hermod::relayToFile("$fline\n",$sig->{infile},$dbg);
-        #    (defined $mm->{bearer}) ?
-        #        Hermod::relayFile2mm($fline,$mm,$dbg) :
-        #        Hermod::relay2mm("$pre$ftext",$mm,$dbg);
-        #}
     }
     ok();
 }
