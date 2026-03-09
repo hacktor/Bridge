@@ -187,7 +187,6 @@ for (;;) {
             my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}\n";
             push @{$apidata->{files}}, $sig->{attachments}/$att->{id};
 
-            #Hermod::relayFile2tel($filemsg,$tel,$type,$dbg) if defined $tel;
             Hermod::relay2mtx($msg,$mat,$dbg) if defined $mat;
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
             Hermod::relayToFile($msg, $irc->{infile}, $dbg) if defined $irc;
