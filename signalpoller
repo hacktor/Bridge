@@ -185,7 +185,7 @@ for (;;) {
 
             my $filemsg = "FILE!$sig->{url}/$att->{id}!$att->{contentType}!$sig->{attachments}/$att->{id} [sig] $type by $sender\n";
             my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}\n";
-            push @{$apidata->{files}}, $sig->{attachments}/$att->{id};
+            push @{$apidata->{files}}, "$sig->{attachments}/$att->{id}";
 
             Hermod::relay2mtx($msg,$mat,$dbg) if defined $mat;
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
