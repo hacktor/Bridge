@@ -296,6 +296,25 @@ sub relay2mtxapi {
     my $res = $ua->request($req);
 }
 
+sub relay2disapi {
+
+    # Arguments the sub expects:
+    # $hr = {
+    #   sender => "visible username in message",
+    #   quote  => "text to be quoted",    # optional
+    #   text   => "normal text",
+    #   files  => [ "/path/to/a", "/path/to/b" ]   # optional
+    # }
+    # $dis : hashref discord config from hermod.toml
+    # $dbg : filehandle to debug log (optional)
+
+    my ($hr, $dis, $dbg) = @_;
+
+    # for now, this is a stubroutine
+    my $text = "$hr->{sender}\n$hr->{text}";
+    relay2dis($text, $dis, $dbg);
+}
+
 sub relay2mtx {
 
     my ($line,$mtx,$dbg) = @_;
