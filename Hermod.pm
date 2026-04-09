@@ -224,7 +224,7 @@ sub relay2telapi {
     };
 
     my $text = "*" . $escape->($hr->{sender}) . "*\n";
-    $text .= "> $_\n" for split /\n/, $hr->{quote};
+    if ($hr->{quote}) { $text .= "> $_\n" for split /\n/, $hr->{quote}; }
     $text .= $escape->($hr->{text});
     print $dbg "Telegram: $text\n" if $dbg;
 
@@ -284,7 +284,7 @@ sub relay2mtxapi {
     my $req = POST(
         $posturl,
         "Content-Type"  => "application/json",
-        "Authorization" => "Bearer $mm->{token}",
+        "Authorization" => "Bearer $mtx->{bearer}",
         Content => encode_json({
             msgtype        => "m.text",
             body           => $text,

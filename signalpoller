@@ -36,7 +36,7 @@ $ENV{JAVA_HOME} = $sig->{JAVA_HOME} if defined $sig->{JAVA_HOME};
 open my $dbg, ">>", $sig->{debug} if defined $sig->{debug};
 my $tel = $cfg->{telegram} if defined $cfg->{telegram};
 my $irc = $cfg->{irc} if defined $cfg->{irc};
-my $mat = $cfg->{matrix} if defined $cfg->{matrix};
+my $mtx = $cfg->{matrix} if defined $cfg->{matrix};
 my $mm = $cfg->{mattermost} if defined $cfg->{mattermost};
 my $dis = $cfg->{discord} if defined $cfg->{discord};
 
@@ -168,14 +168,13 @@ for (;;) {
         next if $sig->{dryrun};
 
         # relay to all chats
-        $apidata->{sender} = "$sender on signal";
+        $apidata->{sender} = "$sender on signal:";
         my $pre = "[sig] $sender: ";
 
         if ($text =~ /\S/) {
 
             #Hermod::relay2tel($tel,"$pre$quote$text\n",$dbg) if defined $tel;
             Hermod::relay2irc("$quote$text\n",$irc,$pre,$dbg) if defined $irc;
-            Hermod::relay2mtx("$pre$quote$text\n",$mat,$dbg) if defined $mat;
             Hermod::relay2dis("$pre$quote$text\n",$dis,$dbg) if defined $dis;
         }
 
@@ -187,12 +186,13 @@ for (;;) {
             my $msg = "[sig] **$sender sends a $type: $sig->{url}/$att->{id}\n";
             push @{$apidata->{files}}, "$sig->{attachments}/$att->{id}";
 
-            Hermod::relay2mtx($msg,$mat,$dbg) if defined $mat;
             Hermod::relay2dis($msg,$dis,$dbg) if defined $dis;
             Hermod::relayToFile($msg, $irc->{infile}, $dbg) if defined $irc;
         }
-        Hermod::relay2mmapi($apidata, $mm, $dbg) if $apidata->{text} or $apidata->{files};
-        Hermod::relay2telapi($apidata, $tel, $dbg) if $apidata->{text} or $apidata->{files};
+        return unless $apidata->{text} or $apidata->{files};
+        Hermod::relay2mmapi($apidata, $mm, $dbg);
+        Hermod::relay2telapi($apidata, $tel, $dbg);
+        Hermod::relay2mtxapi($apidata, $mtx, $dbg);
     }
 }
 
